@@ -117,7 +117,7 @@ def simulate_complex(protein_file, ligand_file):
     context.setPositions(modeller.positions)
     struct = pmd.openmm.load_topology(modeller.topology, system, modeller.positions)
     struct.save('_complex.prmtop', overwrite=True)
-    struct.save('_complex.inpcrd', Overwrite=True)
+    struct.save('_complex.inpcrd', overwrite=True)
     # ligand
     system = system_generator.create_system(ligand_topology)
     context = mm.Context(system, integrator, platform)
@@ -164,7 +164,6 @@ def simulate_complex(protein_file, ligand_file):
     context = simulation.context
     context.setPositions(modeller.positions)
     print('Simulation is created!', flush=True)
-    return
 
     # minimize the energy
     print('Minimizing the energy...', flush=True)
@@ -253,4 +252,6 @@ def plot_simulation_log(log_file, data_to_plot: list):
     
 
 # main function
-simulate_complex('1uom_A_rec.pdb', '1uom_pti_lig.sdf')
+if __name__ == '__main__':
+    simulate_complex('1uom_A_rec.pdb', '1uom_pti_lig.sdf')
+    calculate_mmgbsa('MMPBSA.py')

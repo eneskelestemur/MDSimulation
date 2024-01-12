@@ -1,0 +1,7 @@
+# ignore data and packages
+BayesBindStruct/
+
+# ignore slurm output
+slurm-*.out
+_*
+simulation*

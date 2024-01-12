@@ -87,8 +87,7 @@ def simulate_complex(protein_file, ligand_file):
     ligand.to_file('_ligand.mol2', file_format='MOL')
     print('Ligand is loaded!', flush=True)
 
-    # load the force fields using the system generator
-    print('Setting up the force fields...', flush=True)
+    # create system generator for simulation
     ff_kwargs = {
         'constraints': app.HBonds, 
         'rigidWater': True, 
@@ -100,7 +99,6 @@ def simulate_complex(protein_file, ligand_file):
         molecules=ligand,
         forcefield_kwargs=ff_kwargs,
     )
-    print('Force fields are set up!', flush=True)
 
     # create topology of the complex using modeller
     print('Creating topology of the complex...', flush=True)
@@ -111,7 +109,13 @@ def simulate_complex(protein_file, ligand_file):
     app.PDBFile.writeFile(modeller.topology, modeller.positions, open('_complex.pdb', 'w'))
     ##### amber files #####
     # complex
-    system = system_generator.create_system(modeller.topology, molecules=ligand)
+    ff_kwargs = {'rigidWater': True, 'removeCMMotion': False}
+    system_generator_tmp = SystemGenerator(
+        forcefields=['amber/protein.ff14SB.xml', 'amber/tip3p_standard.xml'],
+        small_molecule_forcefield='gaff-2.11',
+        molecules=ligand,
+    )
+    system = system_generator_tmp.create_system(modeller.topology, molecules=ligand)
     integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds)
     context = mm.Context(system, integrator, platform)
     context.setPositions(modeller.positions)
@@ -119,7 +123,7 @@ def simulate_complex(protein_file, ligand_file):
     struct.save('_complex.prmtop', overwrite=True)
     struct.save('_complex.inpcrd', overwrite=True)
     # ligand
-    system = system_generator.create_system(ligand_topology)
+    system = system_generator_tmp.create_system(ligand_topology)
     context = mm.Context(system, integrator, platform)
     context.setPositions(ligand_topology.get_positions())
     struct = pmd.openmm.load_topology(ligand_topology, system, ligand_topology.get_positions())
@@ -141,7 +145,7 @@ def simulate_complex(protein_file, ligand_file):
     )
     app.PDBFile.writeFile(modeller.topology, modeller.positions, open('_complex_solvated.pdb', 'w'))
     ##### amber files #####
-    system = system_generator.create_system(modeller.topology, molecules=ligand)
+    system = system_generator_tmp.create_system(modeller.topology, molecules=ligand)
     integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds)
     context = mm.Context(system, integrator, platform)
     context.setPositions(modeller.positions)
@@ -168,7 +172,7 @@ def simulate_complex(protein_file, ligand_file):
     # minimize the energy
     print('Minimizing the energy...', flush=True)
     simulation.minimizeEnergy()
-    app.PDBFile.writeFile(simulation.topology, 
+    app.PDBFile.writeFile(simulation.topology,
                           context.getState(getPositions=True, enforcePeriodicBox=True).getPositions(), 
                           open('_complex_solvated_minimized.pdb', 'w'))
     print('Energy is minimized!', flush=True)

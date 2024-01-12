@@ -254,4 +254,4 @@ def plot_simulation_log(log_file, data_to_plot: list):
 # main function
 if __name__ == '__main__':
     simulate_complex('1uom_A_rec.pdb', '1uom_pti_lig.sdf')
-    calculate_mmgbsa('MMPBSA.py')
+    calculate_mmgbsa('/nas/longleaf/home/enesk/miniforge3/pkgs/ambertools-23.3-py312h1577c9a_6/bin/MMPBSA.py')

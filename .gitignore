@@ -5,3 +5,6 @@ BayesBindStruct/
 slurm-*.out
 _*
 simulation*
+*.prmtop
+*.inpcrd
+*.mdcrd

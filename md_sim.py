@@ -49,6 +49,9 @@ def simulate_complex(protein_file, ligand_file):
     # TODO: parametrize hard-coded values for the simulation
     platform = mm.Platform.getPlatformByName('CUDA')
 
+    # create the temporary directory
+    os.system('mkdir tmp')
+
     # load the protein file
     print('Loading the protein file...', flush=True)
     protein = PDBFixer(protein_file)
@@ -66,7 +69,7 @@ def simulate_complex(protein_file, ligand_file):
     modeller = app.Modeller(protein.topology, protein.positions)
     modeller.addHydrogens(forcefield=app.ForceField('amber/protein.ff14SB.xml'), pH=7.0, platform=platform)
     print('Writing the fixed protein file...', flush=True)
-    app.PDBFile.writeFile(modeller.topology, modeller.positions, open('_protein.pdb', 'w'))
+    app.PDBFile.writeFile(modeller.topology, modeller.positions, open('tmp/_protein.pdb', 'w'))
     print('Protein is loaded!', flush=True)
 
     # load the ligand file
@@ -81,13 +84,13 @@ def simulate_complex(protein_file, ligand_file):
         raise ValueError('Ligand file format not recognized. It should be sdf, mol2 or pdb.')
     if isinstance(ligand, list):
         raise ValueError('Ligand file should contain only one molecule.')
-    ligand.to_file('_ligand.mol2', file_format='MOL')
+    ligand.to_file('tmp/_ligand.mol2', file_format='MOL')
     print('Ligand is loaded!', flush=True)
 
     # create system generator for simulation
     ff_kwargs = {
         'constraints': None, 
-        'rigidWater': True, 
+        'rigidWater': False,
         'removeCMMotion': False, 
     }
     system_generator = SystemGenerator(
@@ -103,7 +106,7 @@ def simulate_complex(protein_file, ligand_file):
     ligand_topology = ligand.to_topology()
     modeller.addHydrogens(forcefield=app.ForceField('amber/protein.ff14SB.xml'), pH=7.0, platform=platform)
     modeller.add(ligand_topology.to_openmm(), ligand_topology.get_positions().to_openmm())
-    app.PDBFile.writeFile(modeller.topology, modeller.positions, open('_complex.pdb', 'w'))
+    app.PDBFile.writeFile(modeller.topology, modeller.positions, open('tmp/_complex.pdb', 'w'))
     print('Topology of the complex is created!', flush=True)
 
     # solvate the complex
@@ -117,14 +120,14 @@ def simulate_complex(protein_file, ligand_file):
         ionicStrength=0.0*unit.molar,
         neutralize=True,
     )
-    app.PDBFile.writeFile(modeller.topology, modeller.positions, open('_complex_solvated.pdb', 'w'))
+    app.PDBFile.writeFile(modeller.topology, modeller.positions, open('tmp/_complex_solvated.pdb', 'w'))
     print('Complex is solvated!', flush=True)
 
     # create system
     print('Creating the system for simulation...', flush=True)
     system = system_generator.create_system(modeller.topology, molecules=ligand)
     integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds)
-    system.addForce(mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin, 25))
+    system.addForce(mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin, frequency=25))
     print('System is created!', flush=True)
 
     # create simulation
@@ -135,20 +138,9 @@ def simulate_complex(protein_file, ligand_file):
     print('Simulation is created!', flush=True)
 
     # save the solvated complex as prmtop and inpcrd files
-    print('Saving the solvated complex...', flush=True)
-    # system_generator_tmp = SystemGenerator(
-    #     forcefields=['amber/protein.ff14SB.xml', 'amber/tip3p_standard.xml'],
-    #     small_molecule_forcefield='gaff-2.11',
-    #     molecules=ligand,
-    #     forcefield_kwargs={'rigidWater': True, 'removeCMMotion': False},
-    # )
-    # system_tmp = system_generator_tmp.create_system(modeller.topology, molecules=ligand)
-    # integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds)
-    # context = mm.Context(system_tmp, integrator, platform)
-    # context.setPositions(modeller.positions)
     struct = pmd.openmm.load_topology(modeller.topology, system, modeller.positions)
-    struct.save('_complex_solvated.prmtop', overwrite=True)
-    struct.save('_complex_solvated.inpcrd', overwrite=True)
+    struct.save('tmp/_complex_solvated.prmtop', overwrite=True)
+    struct.save('tmp/_complex_solvated.inpcrd', overwrite=True)
     print('Solvated complex is saved!', flush=True)
 
     # minimize the energy
@@ -156,7 +148,7 @@ def simulate_complex(protein_file, ligand_file):
     simulation.minimizeEnergy()
     app.PDBFile.writeFile(simulation.topology,
                           context.getState(getPositions=True, enforcePeriodicBox=True).getPositions(), 
-                          open('_complex_solvated_minimized.pdb', 'w'))
+                          open('tmp/_complex_solvated_minimized.pdb', 'w'))
     print('Energy is minimized!', flush=True)
 
     # equilibrate the system
@@ -169,7 +161,7 @@ def simulate_complex(protein_file, ligand_file):
     print('Simulating the system...', flush=True)
     simulation.reporters.append(
         app.StateDataReporter(
-            'simulation.log',
+            'tmp/_simulation.log',
             1000,
             step=True,
             potentialEnergy=True,
@@ -183,24 +175,24 @@ def simulate_complex(protein_file, ligand_file):
     )
     simulation.reporters.append(
         app.DCDReporter(
-            'simulation.dcd',
+            'tmp/_simulation.dcd',
             1000,
             enforcePeriodicBox=True,
         )
     )
     simulation.reporters.append(
         MdcrdReporter(
-            'simulation.mdcrd',
+            'tmp/_simulation.mdcrd',
             1000,
             crds=True,
         )
     )
-    simulation.step(10000)
+    simulation.step(10000000)
     print(f'System is simulated for {0.002*simulation.currentStep/1.0*unit.nanosecond}!', flush=True)
 
     # save the final state
     print('Saving the final state...', flush=True)
-    simulation.saveState('_final_state.xml')
+    simulation.saveState('tmp/_final_state.xml')
     print('Final state is saved!', flush=True)
 
 def calculate_mmgbsa(mmgbsa_file_loc):
@@ -213,24 +205,25 @@ def calculate_mmgbsa(mmgbsa_file_loc):
             the Amber MMPBSA.py and ante-MMPBSA.py scripts.
     '''
     # prepare the amber topology files for the MMGBSA calculation
-    print('Preparing the amber topology files for the MMGBSA calculation...', flush=True)
+    print('Preparing the amber topology files for the MMP(G)BSA calculation...', flush=True)
     ante_mmgbsa = os.path.join(mmgbsa_file_loc, 'ante-MMPBSA.py')
+    os.system('rm tmp/_complex.prmtop tmp/_protein.prmtop tmp/_ligand.prmtop')
     os.system(f'python {ante_mmgbsa} \
-              -p _complex_solvated.prmtop \
-              -c _complex.prmtop \
-              -l _protein.prmtop \
-              -r _ligand.prmtop \
-              -s ":WAT" \
-              -m ":RAL"')
+              -p tmp/_complex_solvated.prmtop \
+              -c tmp/_complex.prmtop \
+              -l tmp/_protein.prmtop \
+              -r tmp/_ligand.prmtop \
+              -s ":HOH" \
+              -m ":UNK"')
     # run the MMPBSA.py script on command line
-    print('Calculating MMGBSA for the complex...', flush=True)
+    print('Calculating MMP(G)BSA for the complex...', flush=True)
     mmgbsa = os.path.join(mmgbsa_file_loc, 'MMPBSA.py')
     os.system(f'python {mmgbsa} -O -i mmgbsa.in -o mmgbsa_results.dat \
-              -sp _complex_solvated.prmtop \
-              -cp _complex.prmtop \
-              -rp _protein.prmtop \
-              -lp _ligand.prmtop \
-              -y 1err_prod.mdcrd ')
+              -sp tmp/_complex_solvated.prmtop \
+              -cp tmp/_complex.prmtop \
+              -rp tmp/_protein.prmtop \
+              -lp tmp/_ligand.prmtop \
+              -y tmp/_simulation.mdcrd ')
     
 def analyze_mmgbsa():
     '''
@@ -251,12 +244,5 @@ def plot_simulation_log(log_file, data_to_plot: list):
 
 # main function
 if __name__ == '__main__':
-    # simulate_complex('1uom_A_rec.pdb', '1uom_pti_lig.sdf')
-    # calculate_mmgbsa('/nas/longleaf/home/enesk/miniforge3/pkgs/ambertools-23.3-py312h1577c9a_6/bin')
-    print('Saving the solvated complex...', flush=True)
-    xml_reader = pmd.openmm.XmlFile()
-    tmp_state = xml_reader.parse('_complex_solvated.xml')
-    tmp_complex = pmd.openmm.load_topology()
-    tmp_complex.save('_complex_solvated.prmtop', overwrite=True)
-    tmp_complex.save('_complex_solvated.inpcrd', overwrite=True)
-    print('Solvated complex is saved!', flush=True)
+    simulate_complex('1uom_A_rec.pdb', '1uom_pti_lig.sdf')
+    calculate_mmgbsa('/nas/longleaf/home/enesk/miniforge3/pkgs/ambertools-23.3-py312h1577c9a_6/bin')

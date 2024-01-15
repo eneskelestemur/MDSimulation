@@ -1,6 +1,6 @@
 Input file for running PB and GB
 &general
-   endframe=50, keep_files=2,
+  endframe=50, keep_files=2, debug_printlevel=1
 /
 &gb
   igb=2, saltcon=0.100,

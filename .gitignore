@@ -1,7 +1,10 @@
 # ignore data and packages
 BayesBindStruct/
+tmp/
 
-# ignore slurm output
 slurm-*.out
 _*
-simulation*
+*.prmtop
+*.inpcrd
+*.mdcrd
+*.frc

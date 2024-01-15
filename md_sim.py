@@ -28,11 +28,18 @@ from openff.toolkit.topology import Molecule
 from pdbfixer import PDBFixer
 
 
+
 ## Functions
 def simulate_complex(protein_file, ligand_file, output_dir):
     '''
         This function prepares and simulates the protein-ligand 
         complex for the simulation.
+        
+        Currently, this function will create many files that start with
+        underscore (_) in the current directory. These files are temporary 
+        files and can be deleted after the simulation is finished. In the later
+        versions, these files will be created in a temporary directory and
+        deleted automatically after the simulation.
 
         Args:
             protein_file (str): the path to the protein file in pdb format.
@@ -65,17 +72,7 @@ def simulate_complex(protein_file, ligand_file, output_dir):
     modeller = app.Modeller(protein.topology, protein.positions)
     modeller.addHydrogens(forcefield=app.ForceField('amber/protein.ff14SB.xml'), pH=7.0, platform=platform)
     print('Writing the fixed protein file...', flush=True)
-    app.PDBFile.writeFile(modeller.topology, modeller.positions, open(f'{output_dir}_protein.pdb', 'w'))
-    ##### amber files #####
-    protein = app.PDBFile(f'{output_dir}_protein.pdb')
-    system = app.ForceField('amber/protein.ff14SB.xml').createSystem(protein.topology)
-    integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds)
-    context = mm.Context(system, integrator, platform)
-    context.setPositions(protein.positions)
-    struct = pmd.openmm.load_topology(protein.topology, system, protein.positions)
-    struct.save(f'{output_dir}_protein.prmtop', overwrite=True)
-    struct.save(f'{output_dir}_protein.inpcrd', overwrite=True)
-    ##### amber files #####
+    app.PDBFile.writeFile(modeller.topology, modeller.positions, open(f'{output_dir}/_protein.pdb', 'w'))
     print('Protein is loaded!', flush=True)
 
     # load the ligand file
@@ -90,15 +87,14 @@ def simulate_complex(protein_file, ligand_file, output_dir):
         raise ValueError('Ligand file format not recognized. It should be sdf, mol2 or pdb.')
     if isinstance(ligand, list):
         raise ValueError('Ligand file should contain only one molecule.')
-    ligand.to_file(f'{output_dir}_ligand.mol2', file_format='MOL')
+    ligand.to_file(f'{output_dir}/_ligand.mol2', file_format='MOL')
     print('Ligand is loaded!', flush=True)
 
-    # load the force fields using the system generator
-    print('Setting up the force fields...', flush=True)
+    # create system generator for simulation
     ff_kwargs = {
-        'constraints': app.HBonds, 
-        'rigidWater': True, 
-        'removeCMMotion': False,
+        'constraints': None, 
+        'rigidWater': False,
+        'removeCMMotion': False, 
     }
     system_generator = SystemGenerator(
         forcefields=['amber/protein.ff14SB.xml', 'amber/tip3p_standard.xml'],
@@ -106,7 +102,6 @@ def simulate_complex(protein_file, ligand_file, output_dir):
         molecules=ligand,
         forcefield_kwargs=ff_kwargs,
     )
-    print('Force fields are set up!', flush=True)
 
     # create topology of the complex using modeller
     print('Creating topology of the complex...', flush=True)
@@ -114,24 +109,7 @@ def simulate_complex(protein_file, ligand_file, output_dir):
     ligand_topology = ligand.to_topology()
     modeller.addHydrogens(forcefield=app.ForceField('amber/protein.ff14SB.xml'), pH=7.0, platform=platform)
     modeller.add(ligand_topology.to_openmm(), ligand_topology.get_positions().to_openmm())
-    app.PDBFile.writeFile(modeller.topology, modeller.positions, open(f'{output_dir}_complex.pdb', 'w'))
-    ##### amber files #####
-    # complex
-    system = system_generator.create_system(modeller.topology, molecules=ligand)
-    integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds)
-    context = mm.Context(system, integrator, platform)
-    context.setPositions(modeller.positions)
-    struct = pmd.openmm.load_topology(modeller.topology, system, modeller.positions)
-    struct.save(f'{output_dir}_complex.prmtop', overwrite=True)
-    struct.save(f'{output_dir}_complex.inpcrd', overwrite=True)
-    # ligand
-    system = system_generator.create_system(ligand_topology)
-    context = mm.Context(system, integrator, platform)
-    context.setPositions(ligand_topology.get_positions())
-    struct = pmd.openmm.load_topology(ligand_topology, system, ligand_topology.get_positions())
-    struct.save(f'{output_dir}_ligand.prmtop', overwrite=True)
-    struct.save(f'{output_dir}_ligand.inpcrd', overwrite=True)
-    ##### amber files #####
+    app.PDBFile.writeFile(modeller.topology, modeller.positions, open(f'{output_dir}/_complex.pdb', 'w'))
     print('Topology of the complex is created!', flush=True)
 
     # solvate the complex
@@ -145,23 +123,14 @@ def simulate_complex(protein_file, ligand_file, output_dir):
         ionicStrength=0.0*unit.molar,
         neutralize=True,
     )
-    app.PDBFile.writeFile(modeller.topology, modeller.positions, open(f'{output_dir}_complex_solvated.pdb', 'w'))
-    ##### amber files #####
-    system = system_generator.create_system(modeller.topology, molecules=ligand)
-    integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds)
-    context = mm.Context(system, integrator, platform)
-    context.setPositions(modeller.positions)
-    struct = pmd.openmm.load_topology(modeller.topology, system, modeller.positions)
-    struct.save(f'{output_dir}_complex_solvated.prmtop', overwrite=True)
-    struct.save(f'{output_dir}_complex_solvated.inpcrd', overwrite=True)
-    ##### amber files #####
+    app.PDBFile.writeFile(modeller.topology, modeller.positions, open(f'{output_dir}/_complex_solvated.pdb', 'w'))
     print('Complex is solvated!', flush=True)
 
     # create system
     print('Creating the system for simulation...', flush=True)
     system = system_generator.create_system(modeller.topology, molecules=ligand)
     integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds)
-    system.addForce(mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin))
+    system.addForce(mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin, frequency=25))
     print('System is created!', flush=True)
 
     # create simulation
@@ -171,12 +140,18 @@ def simulate_complex(protein_file, ligand_file, output_dir):
     context.setPositions(modeller.positions)
     print('Simulation is created!', flush=True)
 
+    # save the solvated complex as prmtop and inpcrd files
+    struct = pmd.openmm.load_topology(modeller.topology, system, modeller.positions)
+    struct.save(f'{output_dir}/_complex_solvated.prmtop', overwrite=True)
+    struct.save(f'{output_dir}/_complex_solvated.inpcrd', overwrite=True)
+    print('Solvated complex is saved!', flush=True)
+
     # minimize the energy
     print('Minimizing the energy...', flush=True)
     simulation.minimizeEnergy()
-    app.PDBFile.writeFile(simulation.topology, 
+    app.PDBFile.writeFile(simulation.topology,
                           context.getState(getPositions=True, enforcePeriodicBox=True).getPositions(), 
-                          open(f'{output_dir}_complex_solvated_minimized.pdb', 'w'))
+                          open(f'{output_dir}/_complex_solvated_minimized.pdb', 'w'))
     print('Energy is minimized!', flush=True)
 
     # equilibrate the system
@@ -189,7 +164,7 @@ def simulate_complex(protein_file, ligand_file, output_dir):
     print('Simulating the system...', flush=True)
     simulation.reporters.append(
         app.StateDataReporter(
-            'simulation.log',
+            f'{output_dir}/_simulation.log',
             1000,
             step=True,
             potentialEnergy=True,
@@ -203,43 +178,54 @@ def simulate_complex(protein_file, ligand_file, output_dir):
     )
     simulation.reporters.append(
         app.DCDReporter(
-            'simulation.dcd',
+            f'{output_dir}/_simulation.dcd',
             1000,
             enforcePeriodicBox=True,
         )
     )
     simulation.reporters.append(
         MdcrdReporter(
-            'simulation.mdcrd',
+            f'{output_dir}/_simulation.mdcrd',
             1000,
             crds=True,
         )
     )
-    simulation.step(10000)
+    simulation.step(10000000)
     print(f'System is simulated for {0.002*simulation.currentStep/1.0*unit.nanosecond}!', flush=True)
 
     # save the final state
     print('Saving the final state...', flush=True)
-    simulation.saveState(f'{output_dir}_final_state.xml')
+    simulation.saveState(f'{output_dir}/_final_state.xml')
     print('Final state is saved!', flush=True)
 
 def calculate_mmgbsa(output_dir):
     '''
-        This function calculates the MMGBSA for the protein-ligand complex.
+        This function calculates MMGBSA score for the protein-ligand complex.
         Complex should be simulated first.
 
         Args:
+            mmgbsa_file_loc (str): the path to folder that contains
+            the Amber MMPBSA.py and ante-MMPBSA.py scripts.
             output_dir (str): the location of the output directory.
     '''
+    # prepare the amber topology files for the MMGBSA calculation
+    print('Preparing the amber topology files for the MMP(G)BSA calculation...', flush=True)
+    os.system(f'rm {output_dir}/_complex.prmtop {output_dir}/_protein.prmtop {output_dir}/_ligand.prmtop')
+    subprocess.run(f'ante-MMPBSA.py \
+              -p {output_dir}/_complex_solvated.prmtop \
+              -c {output_dir}/_complex.prmtop \
+              -l {output_dir}/_protein.prmtop \
+              -r {output_dir}/_ligand.prmtop \
+              -s ":HOH" \
+              -m ":UNK"', shell=True)
     # run the MMPBSA.py script on command line
-    print('Calculating the MMGBSA for the complex...', flush=True)
-    subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o {output_dir}/mmgbsa_results.dat \
-              -sp _complex_solvated.prmtop \
-              -cp _complex.prmtop \
-              -rp _protein.prmtop \
-              -lp _ligand.prmtop \
-              -y *.mdcrd ', shell=True, check=True)
-    
+    print('Calculating MMP(G)BSA for the complex...', flush=True)
+    subprocess.run(f'MMGBSA.py -O -i mmgbsa.in -o mmgbsa_results.dat \
+              -sp {output_dir}/_complex_solvated.prmtop \
+              -cp {output_dir}/_complex.prmtop \
+              -rp {output_dir}/_protein.prmtop \
+              -lp {output_dir}/_ligand.prmtop \
+              -y {output_dir}/_simulation.mdcrd ', shell=True)
 def analyze_mmgbsa():
     '''
         This function analyzes the MMGBSA results using the MMPBSA.py.MPI module.

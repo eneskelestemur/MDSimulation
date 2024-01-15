@@ -130,7 +130,7 @@ def simulate_complex(protein_file, ligand_file, output_dir):
     print('Creating the system for simulation...', flush=True)
     system = system_generator.create_system(modeller.topology, molecules=ligand)
     integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds)
-    system.addForce(mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin, frequency=25))
+    system.addForce(mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin))
     print('System is created!', flush=True)
 
     # create simulation

@@ -47,7 +47,7 @@ def simulate_complex(protein_file, ligand_file):
     '''
     # params
     # TODO: parametrize hard-coded values for the simulation
-    platform = mm.Platform.getPlatformByName('CPU')
+    platform = mm.Platform.getPlatformByName('CUDA')
 
     # load the protein file
     print('Loading the protein file...', flush=True)
@@ -86,7 +86,7 @@ def simulate_complex(protein_file, ligand_file):
 
     # create system generator for simulation
     ff_kwargs = {
-        'constraints': app.HBonds, 
+        'constraints': None, 
         'rigidWater': True, 
         'removeCMMotion': False, 
     }
@@ -136,17 +136,17 @@ def simulate_complex(protein_file, ligand_file):
 
     # save the solvated complex as prmtop and inpcrd files
     print('Saving the solvated complex...', flush=True)
-    system_generator_tmp = SystemGenerator(
-        forcefields=['amber/protein.ff14SB.xml', 'amber/tip3p_standard.xml'],
-        small_molecule_forcefield='gaff-2.11',
-        molecules=ligand,
-        forcefield_kwargs={'rigidWater': True, 'removeCMMotion': False},
-    )
-    system_tmp = system_generator_tmp.create_system(modeller.topology, molecules=ligand)
-    integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds)
-    context = mm.Context(system_tmp, integrator, platform)
-    context.setPositions(modeller.positions)
-    struct = pmd.openmm.load_topology(modeller.topology, system_tmp, modeller.positions)
+    # system_generator_tmp = SystemGenerator(
+    #     forcefields=['amber/protein.ff14SB.xml', 'amber/tip3p_standard.xml'],
+    #     small_molecule_forcefield='gaff-2.11',
+    #     molecules=ligand,
+    #     forcefield_kwargs={'rigidWater': True, 'removeCMMotion': False},
+    # )
+    # system_tmp = system_generator_tmp.create_system(modeller.topology, molecules=ligand)
+    # integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds)
+    # context = mm.Context(system_tmp, integrator, platform)
+    # context.setPositions(modeller.positions)
+    struct = pmd.openmm.load_topology(modeller.topology, system, modeller.positions)
     struct.save('_complex_solvated.prmtop', overwrite=True)
     struct.save('_complex_solvated.inpcrd', overwrite=True)
     print('Solvated complex is saved!', flush=True)
@@ -252,4 +252,11 @@ def plot_simulation_log(log_file, data_to_plot: list):
 # main function
 if __name__ == '__main__':
     # simulate_complex('1uom_A_rec.pdb', '1uom_pti_lig.sdf')
-    calculate_mmgbsa('/nas/longleaf/home/enesk/miniforge3/pkgs/ambertools-23.3-py312h1577c9a_6/bin')
+    # calculate_mmgbsa('/nas/longleaf/home/enesk/miniforge3/pkgs/ambertools-23.3-py312h1577c9a_6/bin')
+    print('Saving the solvated complex...', flush=True)
+    xml_reader = pmd.openmm.XmlFile()
+    tmp_state = xml_reader.parse('_complex_solvated.xml')
+    tmp_complex = pmd.openmm.load_topology()
+    tmp_complex.save('_complex_solvated.prmtop', overwrite=True)
+    tmp_complex.save('_complex_solvated.inpcrd', overwrite=True)
+    print('Solvated complex is saved!', flush=True)

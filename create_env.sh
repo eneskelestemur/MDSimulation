@@ -1,0 +1,1 @@
+mamba create -n mm -c omnia -c conda-forge python=3.9 openmm parmed openff-toolkit openmmforcefields pdbfixer ambertools -y

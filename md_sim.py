@@ -5,6 +5,7 @@
 
 # libraries
 import os
+import time
 import subprocess
 import sys
 import argparse
@@ -48,6 +49,7 @@ def simulate_complex(protein_file, ligand_file, output_dir='tmp'):
             output_dir (str): the path to the output directory. This is where
                 it stores all the prmtop files
     '''
+    start_time = time.time()
     # params
     # TODO: parametrize hard-coded values for the simulation
 
@@ -142,45 +144,19 @@ def simulate_complex(protein_file, ligand_file, output_dir='tmp'):
 
     # save the solvated complex as prmtop and inpcrd files
     struct = pmd.openmm.load_topology(modeller.topology, system, modeller.positions)
-    struct.save(f'{output_dir}/_complex_solvated.prmtop', overwrite=True)
-    struct.save(f'{output_dir}/_complex_solvated.inpcrd', overwrite=True)
+    amber_parm = pmd.amber.AmberParm.from_structure(struct)
+    radii_update = pmd.tools.actions.changeRadii(amber_parm, 'mbondi2')
+    radii_update.execute()
+    amber_parm.write_parm(f'{output_dir}/_complex_solvated.prmtop')
+    # struct.save(f'{output_dir}/_complex_solvated.prmtop', overwrite=True)
     print('Solvated complex is saved!', flush=True)
 
     # minimize the energy
     print('Minimizing the energy...', flush=True)
-    simulation.reporters.append(
-        app.StateDataReporter(
-            f'{output_dir}/_minimization.log',
-            100,
-            step=True,
-            potentialEnergy=True,
-            kineticEnergy=True,
-            totalEnergy=True,
-            temperature=True,
-            volume=True,
-            density=True,
-            speed=True,
-        )
-    )
-    simulation.reporters.append(
-        app.DCDReporter(
-            f'{output_dir}/_minimization.dcd',
-            100,
-            enforcePeriodicBox=True,
-        )
-    )
-    simulation.reporters.append(
-        MdcrdReporter(
-            f'{output_dir}/_minimization.mdcrd',
-            100,
-            crds=True,
-        )
-    )
     simulation.minimizeEnergy()
     app.PDBFile.writeFile(simulation.topology,
                           context.getState(getPositions=True, enforcePeriodicBox=True).getPositions(), 
                           open(f'{output_dir}/_complex_solvated_minimized.pdb', 'w'))
-    simulation.reporters.clear()
     print('Energy is minimized!', flush=True)
 
     # equilibrate the system
@@ -249,12 +225,14 @@ def simulate_complex(protein_file, ligand_file, output_dir='tmp'):
         )
     )
     simulation.step(1000000)
-    print(f'System is simulated for {0.002*simulation.currentStep/1000}!', flush=True)
+    print(f'System is simulated for {0.002*simulation.currentStep/1000} ns!', flush=True)
 
     # save the final state
     print('Saving the final state...', flush=True)
     simulation.saveState(f'{output_dir}/_final_state.xml')
     print('Final state is saved!', flush=True)
+    print(f'Total simulation time: {(time.time()-start_time)/60} minutes', flush=True)
+    print('\n----------------------------------------\n\n', flush=True)
 
 def calculate_mmgbsa(output_dir):
     '''
@@ -282,7 +260,7 @@ def calculate_mmgbsa(output_dir):
                    -rp {output_dir}/_protein.prmtop \
                    -lp {output_dir}/_ligand.prmtop \
                    -y {output_dir}/*.mdcrd \
-                   -prefix {output_dir}', shell=True)
+                   -prefix {output_dir}/_', shell=True)
     
     # clean up the large reference.frc file -- not sure what this file is for
     os.system('rm reference.frc')

@@ -276,13 +276,17 @@ def calculate_mmgbsa(output_dir):
               -m ":UNK"', shell=True)
     # run the MMPBSA.py script on command line
     print('Calculating MMP(G)BSA for the complex...', flush=True)
-    subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o mmgbsa_results.dat \
+    subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o {output_dir}/mmgbsa_results.dat \
                    -sp {output_dir}/_complex_solvated.prmtop \
                    -cp {output_dir}/_complex.prmtop \
                    -rp {output_dir}/_protein.prmtop \
                    -lp {output_dir}/_ligand.prmtop \
                    -y {output_dir}/*.mdcrd \
                    -prefix {output_dir}', shell=True)
+    
+    # clean up the large reference.frc file -- not sure what this file is for
+    os.system('rm reference.frc')
+
 def analyze_mmgbsa():
     '''
         This function analyzes the MMGBSA results using the MMPBSA.py.MPI module.
@@ -307,5 +311,6 @@ if __name__ == '__main__':
     simulate_complex('1uom_A_rec.pdb', '1uom_pti_lig.sdf', out_dir)
     # now calculate MMGBSA from the simulation results. This stores everything to
     # {out_dir}/mmgbsa_results.dat. This is a plain text file that should be pretty easy
-    # to parse. 
+    # to parse. There are intermediate files that are created in the out_dir. These files
+    # useful to debug the calculation, but they are not necessary to keep.
     calculate_mmgbsa(out_dir)

@@ -2,10 +2,10 @@ Input file for running PB and GB
 &general
   keep_files=2, debug_printlevel=1,
   strip_mask=":WAT:HOH:CL:CIO:CS:IB:K:LI:MG:NA:RB",
-  startframe=1, endframe=201, interval=4,
+  startframe=1, endframe=251, interval=5,
 /
 &gb
-  igb=2, saltcon=0.100,
+  igb=5, saltcon=0.100,
 /
 &pb
   istrng=0.100, radiopt=0

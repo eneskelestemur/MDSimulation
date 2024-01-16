@@ -148,16 +148,74 @@ def simulate_complex(protein_file, ligand_file, output_dir='tmp'):
 
     # minimize the energy
     print('Minimizing the energy...', flush=True)
+    simulation.reporters.append(
+        app.StateDataReporter(
+            f'{output_dir}/_minimization.log',
+            100,
+            step=True,
+            potentialEnergy=True,
+            kineticEnergy=True,
+            totalEnergy=True,
+            temperature=True,
+            volume=True,
+            density=True,
+            speed=True,
+        )
+    )
+    simulation.reporters.append(
+        app.DCDReporter(
+            f'{output_dir}/_minimization.dcd',
+            100,
+            enforcePeriodicBox=True,
+        )
+    )
+    simulation.reporters.append(
+        MdcrdReporter(
+            f'{output_dir}/_minimization.mdcrd',
+            100,
+            crds=True,
+        )
+    )
     simulation.minimizeEnergy()
     app.PDBFile.writeFile(simulation.topology,
                           context.getState(getPositions=True, enforcePeriodicBox=True).getPositions(), 
                           open(f'{output_dir}/_complex_solvated_minimized.pdb', 'w'))
+    simulation.reporters.clear()
     print('Energy is minimized!', flush=True)
 
     # equilibrate the system
     print('Equilibrating the system...', flush=True)
     simulation.context.setVelocitiesToTemperature(300*unit.kelvin)
+    simulation.reporters.append(
+        app.StateDataReporter(
+            f'{output_dir}/_equilibration.log',
+            100,
+            step=True,
+            potentialEnergy=True,
+            kineticEnergy=True,
+            totalEnergy=True,
+            temperature=True,
+            volume=True,
+            density=True,
+            speed=True,
+        )
+    )
+    simulation.reporters.append(
+        app.DCDReporter(
+            f'{output_dir}/_equilibration.dcd',
+            100,
+            enforcePeriodicBox=True,
+        )
+    )
+    simulation.reporters.append(
+        MdcrdReporter(
+            f'{output_dir}/_equilibration.mdcrd',
+            100,
+            crds=True,
+        )
+    )
     simulation.step(1000)
+    simulation.reporters.clear()
     print('System is equilibrated!', flush=True)
 
     # simulate the system
@@ -190,8 +248,8 @@ def simulate_complex(protein_file, ligand_file, output_dir='tmp'):
             crds=True,
         )
     )
-    simulation.step(10000000)
-    print(f'System is simulated for {0.002*simulation.currentStep/1.0*unit.nanosecond}!', flush=True)
+    simulation.step(1000000)
+    print(f'System is simulated for {0.002*simulation.currentStep/1000}!', flush=True)
 
     # save the final state
     print('Saving the final state...', flush=True)
@@ -204,8 +262,6 @@ def calculate_mmgbsa(output_dir):
         Complex should be simulated first.
 
         Args:
-            mmgbsa_file_loc (str): the path to folder that contains
-            the Amber MMPBSA.py and ante-MMPBSA.py scripts.
             output_dir (str): the location of the output directory.
     '''
     # prepare the amber topology files for the MMGBSA calculation
@@ -216,16 +272,16 @@ def calculate_mmgbsa(output_dir):
               -c {output_dir}/_complex.prmtop \
               -l {output_dir}/_protein.prmtop \
               -r {output_dir}/_ligand.prmtop \
-              -s ":HOH" \
+              -s ":WAT,HOH,NA,CL,CIO,CS,IB,K,LI,MG,RB" \
               -m ":UNK"', shell=True)
     # run the MMPBSA.py script on command line
     print('Calculating MMP(G)BSA for the complex...', flush=True)
-    subprocess.run(f'MMGBSA.py -O -i mmgbsa.in -o mmgbsa_results.dat \
+    subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o mmgbsa_results.dat \
               -sp {output_dir}/_complex_solvated.prmtop \
               -cp {output_dir}/_complex.prmtop \
               -rp {output_dir}/_protein.prmtop \
               -lp {output_dir}/_ligand.prmtop \
-              -y {output_dir}/_simulation.mdcrd ', shell=True)
+              -y {output_dir}/*.mdcrd ', shell=True)
 def analyze_mmgbsa():
     '''
         This function analyzes the MMGBSA results using the MMPBSA.py.MPI module.
@@ -247,8 +303,8 @@ def plot_simulation_log(log_file, data_to_plot: list):
 if __name__ == '__main__':
     out_dir = 'tmp'
     # first simulate the complex. This will take a while.
-    simulate_complex('1uom_A_rec.pdb', '1uom_pti_lig.sdf', out_dir)
+    # simulate_complex('1uom_A_rec.pdb', '1uom_pti_lig.sdf', out_dir)
     # now calculate MMGBSA from the simulation results. This stores everything to
-    # {out_dir}/mmgbsa_results.dat. This is a plan text file that should be pretty easy
+    # {out_dir}/mmgbsa_results.dat. This is a plain text file that should be pretty easy
     # to parse. 
     calculate_mmgbsa(out_dir)

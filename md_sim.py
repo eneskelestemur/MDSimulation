@@ -30,7 +30,7 @@ from pdbfixer import PDBFixer
 
 
 ## Functions
-def simulate_complex(protein_file, ligand_file, output_dir):
+def simulate_complex(protein_file, ligand_file, output_dir='tmp'):
     '''
         This function prepares and simulates the protein-ligand 
         complex for the simulation.
@@ -245,7 +245,7 @@ def plot_simulation_log(log_file, data_to_plot: list):
 
 # main function
 if __name__ == '__main__':
-    out_dir = 'example_results'
+    out_dir = 'tmp'
     # first simulate the complex. This will take a while.
     simulate_complex('1uom_A_rec.pdb', '1uom_pti_lig.sdf', out_dir)
     # now calculate MMGBSA from the simulation results. This stores everything to

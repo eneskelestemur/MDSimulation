@@ -1,5 +1,4 @@
 # ignore data and packages
-BayesBindStruct/
 tmp/
 
 slurm-*.out

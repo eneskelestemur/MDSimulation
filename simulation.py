@@ -15,10 +15,6 @@ import MDAnalysis as mda
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from MMPBSA_mods import API as MMPBSA_API
-
-from parmed.openmm import MdcrdReporter
-
 from openmm import unit
 from openmmforcefields.generators import SystemGenerator
 from openff.toolkit.topology import Molecule
@@ -330,6 +326,8 @@ class Simulation():
         positions = simulation.context.getState(getPositions=True).getPositions()
         app.PDBFile.writeFile(simulation.topology, positions, open(f'{self.output_dir}/tmp/_nvt_equilibrated.pdb', 'w'))
         simulation.reporters.clear()
+        simulation.integrator.setTemperature(300*unit.kelvin)
+        simulation.context.reinitialize(True)
     
     def _equilibrate_npt(self, simulation: app.Simulation, reporters: list):
         '''
@@ -461,3 +459,63 @@ class Simulation():
         print('Final state is saved!', flush=True)
         print(f'Simulation time: {(time.time()-start_time)/60} minutes', flush=True)
         print('\n----------------------------------------\n\n', flush=True)
+
+    @staticmethod
+    def plot_StateData(data_file, names_to_plot, save=True, show=False):
+        '''
+            Plot the data from the StateDataReporter. The file must have "Step" column.
+
+            Args:
+                data_file (str): the path to the data file.
+                names_to_plot (list): the list of names to plot.
+                save (bool): whether to save the figure or not.
+        '''
+        n_names = len(names_to_plot)
+        data = pd.read_csv(data_file, index_col=None)
+        sim_time = data['Step'] * 0.002 / 1000 # ns
+        fig = plt.figure(figsize=(20, 10))
+        for i, name in enumerate(names_to_plot):
+            ax = fig.add_subplot(n_names//2, 2, i+1)
+            ax.plot(sim_time, data[name])
+            ax.set_xlabel('Time (ns)')
+            ax.set_ylabel(name)
+        fig.tight_layout()
+
+        if save:
+            fig.savefig(f'{data_file[:-4]}.png')
+
+        if show:
+            fig.show()
+
+    @staticmethod
+    def plot_RMSD(data_file, save=True):
+        '''
+            Plot the RMSD data from the DCDReporter. 
+
+            Args:
+                data_file (str): the path to the data file.
+                save (bool): whether to save the figure or not.
+        '''
+    
+    @staticmethod
+    def plot_RMSF(data_file, backbone_only=True, save=True):
+        '''
+            Plot the RMSF data from the DCDReporter. 
+
+            Args:
+                data_file (str): the path to the data file.
+                backbone_only (bool): whether to plot only the backbone or not.
+                save (bool): whether to save the figure or not.
+        '''
+    
+    @staticmethod
+    def plot_Hbonds(data_file, save=True):
+        '''
+            Plot the Hbonds data from the DCDReporter. 
+
+            Args:
+                data_file (str): the path to the data file.
+                save (bool): whether to save the figure or not.
+        '''
+
+    

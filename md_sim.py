@@ -17,7 +17,7 @@ import parmed as pmd
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from MMPBSA_mods import API as MMPBSA_API
+# from MMPBSA_mods import API as MMPBSA_API
 
 # from MDAnalysis.analysis import rms
 
@@ -55,7 +55,7 @@ def simulate_complex(protein_file, ligand_file, output_dir='tmp'):
 
     os.makedirs(output_dir, exist_ok=True)
 
-    platform = mm.Platform.getPlatformByName('CUDA')
+    platform = mm.Platform.getPlatformByName('CPU')
 
     # load the protein file
     print('Loading the protein file...', flush=True)
@@ -138,8 +138,8 @@ def simulate_complex(protein_file, ligand_file, output_dir='tmp'):
     # create simulation
     print('Creating the simulation...', flush=True)
     simulation = app.Simulation(modeller.topology, system, integrator, platform=platform)
+    simulation.context.setPositions(modeller.positions)
     context = simulation.context
-    context.setPositions(modeller.positions)
     print('Simulation is created!', flush=True)
 
     # save the solvated complex as prmtop and inpcrd files

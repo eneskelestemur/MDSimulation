@@ -7,18 +7,18 @@ import os
 import sys
 import time
 import argparse
+import matplotlib.pyplot as plt
+import pandas as pd
 import openmm.app as app
 import openmm as mm
 import parmed as pmd
-
 import MDAnalysis as mda
-import matplotlib.pyplot as plt
-import pandas as pd
 
 from openmm import unit
 from openmmforcefields.generators import SystemGenerator
 from openff.toolkit.topology import Molecule
 from pdbfixer import PDBFixer
+from MDAnalysis.analysis import rms, align
 
 
 # Simulation class
@@ -218,7 +218,7 @@ class Simulation():
             proteins,
             ligands=None,
             integrator=mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds),
-            additional_forces=[mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin, frequency=25)],
+            additional_forces=[mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin)],
             forcefields=['amber14/protein.ff14SB.xml', 'amber14/tip3p.xml'],
             ligand_forcefield='gaff-2.11',
             solvate=True,
@@ -488,25 +488,106 @@ class Simulation():
             fig.show()
 
     @staticmethod
-    def plot_RMSD(data_file, save=True):
+    def plot_RMSD(traj_file, topology_file, 
+                  labels=['Backbone', r'$C_{\alpha}$', 'Protien', 'Ligand'], 
+                  rmsd_kwargs=None):
         '''
-            Plot the RMSD data from the DCDReporter. 
+            Plot the RMSD data from the DCDReporter. This function
+            can use any trajectory file format that MDAnalysis can handle.
+            
+            This function, by default, will align the trajectory to the first frame 
+            by the backbone. Then, it will calculate and plot the RMSD of the backbone atoms,
+            alpha carbons of the protein, protein, and ligand. Note that if the complex
+            is a protein-protein complex, then it will be the second protein RMSD instead of the ligand.
+
+            This function will return the RMSD array and the figure object. To save the figure,
+            use the savefig() method of the figure object.
 
             Args:
-                data_file (str): the path to the data file.
-                save (bool): whether to save the figure or not.
+                topology_file (str): the path to the topology file.
+                traj_file (str): the path to the DCDReporter file.
+                    This file can be in any format that MDAnalysis can handle.
+                    Also, the file can be a list of trajectory files.
+                labels (list): the list of labels to use for the plot.
+                rmsd_kwargs (dict): the keyword arguments for the MDAnalysis.rms.RMSD class.
+                    refer to the documentation of MDAnalysis.rms.RMSD for more information.
+                    default: {'select': 'backbone', 'groupselections': ['segid A', 'segid B', 'name CA']}
+
+            Returns:
+                rmsd (numpy.ndarray): the RMSD array.
+                fig (matplotlib.figure.Figure): the figure object.
         '''
+        if rmsd_kwargs is None:
+            rmsd_kwargs = {'select': 'backbone', 'groupselections': ['segid A', 'segid B', 'name CA']}
+        # load the trajectory
+        universe = mda.Universe(topology=topology_file, coordinates=traj_file, all_coordinates=True)
+        rmsd = rms.RMSD(
+            universe,
+            select='backbone',
+            groupselections=[ 'name CA', 'segid A', 'segid B',],
+        )
+        rmsd.run()
+        res = rmsd.results.rmsd
+        
+        # plot the RMSDs
+        fig = plt.figure(figsize=(12, 9), dpi=150)
+        ax = fig.add_subplot(111)
+        for i in range(len(labels)):
+            ax.plot(res[:,0], res[:, i+2], label=labels[i])
+        ax.legend()
+        ax.set_xlabel('Time (ps)')
+        ax.set_ylabel('RMSD (Å)')
+        fig.tight_layout()
+
+        return res, fig
     
     @staticmethod
-    def plot_RMSF(data_file, backbone_only=True, save=True):
+    def plot_RMSF(traj_file, topology_file, segid='A'):
         '''
-            Plot the RMSF data from the DCDReporter. 
+            Plot the RMSF data from the DCDReporter. This function
+            can use any trajectory file format that MDAnalysis can handle.
+            
+            This function will calculate and plot the RMSF of the residues with respect to
+            the average positions of the given trajectory. Note that if the complex
+            is a protein-protein complex, provide the segid of the protein to calculate 
+            the RMSF for.
+
+            This function will return the RMSF array and the figure object. To save the figure,
+            use the savefig() method of the figure object.
 
             Args:
-                data_file (str): the path to the data file.
-                backbone_only (bool): whether to plot only the backbone or not.
-                save (bool): whether to save the figure or not.
+                topology_file (str): the path to the topology file.
+                traj_file (str): the path to the DCDReporter file.
+                    This file can be in any format that MDAnalysis can handle.
+                    Also, the file can be a list of trajectory files.
+                segid (str): the segid (chain id) of the protein to calculate the RMSF for.
+
+            Returns:
+                rmsf (numpy.ndarray): the RMSF array.
+                fig (matplotlib.figure.Figure): the figure object.
         '''
+        # load the trajectory
+        universe = mda.Universe(topology=topology_file, coordinates=traj_file, all_coordinates=True)
+
+        # align the trajectory to the first frame
+        align.AlignTraj(universe, universe, select=f'segid {segid} and name CA', in_memory=True).run()
+        ref_coords = universe.trajectory.timeseries(asel=f'segid {segid}').mean(axis=1)
+        ref = mda.Merge(universe).load_new(ref_coords[:, None, :], order="afc")
+        align.AlignTraj(universe, ref, select=f'segid {segid} and name CA', in_memory=True).run()
+
+        # calculate the RMSF
+        c_alphas = universe.select_atoms('name CA')
+        rmsf = rms.RMSF(c_alphas).run()
+
+        # plot the RMSF
+        fig = plt.figure(figsize=(12, 9), dpi=150)
+        ax = fig.add_subplot(111)
+        ax.plot(c_alphas.resids, rmsf.results.rmsf)
+        ax.set_xlabel('Residue ID')
+        ax.set_ylabel('RMSF (Å)')
+        fig.tight_layout()
+
+        return rmsf, fig
     
     @staticmethod
     def plot_Hbonds(data_file, save=True):
@@ -514,8 +595,26 @@ class Simulation():
             Plot the Hbonds data from the DCDReporter. 
 
             Args:
-                data_file (str): the path to the data file.
+                data_file (str): the path to the DCDReporter file.
                 save (bool): whether to save the figure or not.
+
+            Returns:
+                hbonds (list): the list of Hbonds per frame.
+                fig (matplotlib.figure.Figure): the figure object.
         '''
 
-    
+    @staticmethod
+    def plot_pairwise_rmsd(data_file, save=True):
+        '''
+            Plot the pairwise RMSD of a trajectory.
+
+            Args:
+                data_file (str): the path to the DCDReporter file.
+                save (bool): whether to save the figure or not.
+
+            Returns:
+                pdist (numpy.ndarray): the pairwise RMSD matrix.
+                fig (matplotlib.figure.Figure): the figure object.
+        '''
+
+

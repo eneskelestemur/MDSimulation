@@ -18,7 +18,7 @@ from openmm import unit
 from openmmforcefields.generators import SystemGenerator
 from openff.toolkit.topology import Molecule
 from pdbfixer import PDBFixer
-from MDAnalysis.analysis import rms, align
+from MDAnalysis.analysis import rms, align, diffusionmap
 
 
 # Simulation class
@@ -355,10 +355,10 @@ class Simulation():
             minimize=True,
             nvt_equilibration=True,
             npt_equilibration=True,
-            sim_reporters=[app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True), app.DCDReporter('tmp/_sim_trajectory.dcd', 1000)],
-            min_reporters=[app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True), app.DCDReporter('tmp/_min_trajectory.dcd', 1000)],
-            nvt_reporters=[app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True), app.DCDReporter('tmp/_nvt_trajectory.dcd', 1000)],
-            npt_reporters=[app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True), app.DCDReporter('tmp/_npt_trajectory.dcd', 1000)],
+            sim_reporters=None,
+            min_reporters=None,
+            nvt_reporters=None,
+            npt_reporters=None,
             integrator=mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds),
             additional_forces=[mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin)],
             forcefields=['amber14/protein.ff14SB.xml', 'amber14/tip3p.xml'],
@@ -382,9 +382,17 @@ class Simulation():
                     The protein is constrained during the equilibration by 
                     the strength of 2 kcal/mol·Å2. 
                 sim_reporters (list): the list of reporters to use during the main simulation.
+                    Default: [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
+                              app.DCDReporter('{output_dir}/sim_trajectory.dcd', 1000)]
                 min_reporters (list): the list of reporters to use during the minimization.
+                    Default: [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
+                              app.DCDReporter('{output_dir}/min_trajectory.dcd', 1000)]
                 nvt_reporters (list): the list of reporters to use during the NVT equilibration.
+                    Default: [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
+                              app.DCDReporter('{output_dir}/nvt_trajectory.dcd', 1000)]
                 npt_reporters (list): the list of reporters to use during the NPT equilibration.
+                    Default: [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
+                              app.DCDReporter('{output_dir}/npt_trajectory.dcd', 1000)]
                 integrator (openmm.Integrator): the integrator object.
                 additional_forces (list): the list of additional forces to add to the system.
                 forcefields (list): the list of forcefields to use for the protein and solvent.
@@ -396,6 +404,19 @@ class Simulation():
                 nonperiodic_forcefield_kwargs (dict): the keyword arguments for the nonperiodic topology.
                 periodic_forcefield_kwargs (dict): the keyword arguments for the periodic topology.
         '''
+        # check the reporters
+        if sim_reporters is None:
+            sim_reporters = [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
+                             app.DCDReporter(f'{self.output_dir}/sim_trajectory.dcd', 1000)]
+        if min_reporters is None:
+            min_reporters = [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
+                             app.DCDReporter(f'{self.output_dir}/min_trajectory.dcd', 1000)]
+        if nvt_reporters is None:
+            nvt_reporters = [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
+                             app.DCDReporter(f'{self.output_dir}/nvt_trajectory.dcd', 1000)]
+        if npt_reporters is None:
+            npt_reporters = [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
+                             app.DCDReporter(f'{self.output_dir}/npt_trajectory.dcd', 1000)]
         # prepare the simulation
         simulation = self._prepare_simulation(
             proteins=self.proteins,
@@ -497,7 +518,7 @@ class Simulation():
             
             This function, by default, will align the trajectory to the first frame 
             by the backbone. Then, it will calculate and plot the RMSD of the backbone atoms,
-            alpha carbons of the protein, protein, and ligand. Note that if the complex
+            alpha carbons of the protein, all protein atoms, and ligand. Note that if the complex
             is a protein-protein complex, then it will be the second protein RMSD instead of the ligand.
 
             This function will return the RMSD array and the figure object. To save the figure,
@@ -523,8 +544,7 @@ class Simulation():
         universe = mda.Universe(topology=topology_file, coordinates=traj_file, all_coordinates=True)
         rmsd = rms.RMSD(
             universe,
-            select='backbone',
-            groupselections=[ 'name CA', 'segid A', 'segid B',],
+            **rmsd_kwargs,
         )
         rmsd.run()
         res = rmsd.results.rmsd
@@ -569,7 +589,7 @@ class Simulation():
         # load the trajectory
         universe = mda.Universe(topology=topology_file, coordinates=traj_file, all_coordinates=True)
 
-        # align the trajectory to the first frame
+        # align the trajectory to the first frame and calculate the average positions
         align.AlignTraj(universe, universe, select=f'segid {segid} and name CA', in_memory=True).run()
         ref_coords = universe.trajectory.timeseries(asel=f'segid {segid}').mean(axis=1)
         ref = mda.Merge(universe).load_new(ref_coords[:, None, :], order="afc")
@@ -604,17 +624,78 @@ class Simulation():
         '''
 
     @staticmethod
-    def plot_pairwise_rmsd(data_file, save=True):
+    def plot_pairwise_rmsd(traj_file, topology_file, select='backbone'):
         '''
-            Plot the pairwise RMSD of a trajectory.
+            Plot the pairwise RMSD data from the DCDReporter. This function
+            can use any trajectory file format that MDAnalysis can handle.
+            
+            This function, by default, will align the trajectory to the first frame 
+            by the backbone. Then, it will calculate and plot the pairwise RMSD of the backbone atoms.
+
+            This function will return the pairwise RMSD array and the figure object. To save the figure,
+            use the savefig() method of the figure object.
 
             Args:
-                data_file (str): the path to the DCDReporter file.
-                save (bool): whether to save the figure or not.
+                topology_file (str): the path to the topology file.
+                traj_file (str): the path to the DCDReporter file.
+                    This file can be in any format that MDAnalysis can handle.
+                    Also, the file can be a list of trajectory files.
 
             Returns:
-                pdist (numpy.ndarray): the pairwise RMSD matrix.
+                rmsd (numpy.ndarray): the pairwise RMSD array.
                 fig (matplotlib.figure.Figure): the figure object.
         '''
+        # load the trajectory
+        universe = mda.Universe(topology=topology_file, coordinates=traj_file, all_coordinates=True)
 
+        # align the trajectory to the first frame
+        align.AlignTraj(universe, universe, select=select, in_memory=True).run()
 
+        # calculate the pairwise RMSD
+        matrix = diffusionmap.DistanceMatrix(universe, select=select).run()
+        res = matrix.results.dist_matrix
+
+        # plot the pairwise RMSD
+        fig = plt.figure(figsize=(12, 9), dpi=150)
+        ax = fig.add_subplot(111)
+        ax.imshow(res, cmap='viridis')
+        ax.set_xlabel('Frame')
+        ax.set_ylabel('Frame')
+        fig.colorbar(label='RMSD (Å)')
+        fig.tight_layout()
+
+        return res, fig
+    
+
+# main function
+if __name__ == '__main__':
+    # test the simulation class
+    output_dir = 'ras_raf_example'
+    complex_sim = Simulation(
+        protein_files=['ras_raf_example/ras.pdb', 'ras_raf_example/raf.pdb'],
+        ligand_files=None,
+        platform='CUDA',
+        output_dir=output_dir,
+        remove_tmp_files=False,
+    )
+
+    complex_sim.run_simulation(
+        num_steps=1000000,
+        minimize=True,
+        nvt_equilibration=True,
+        npt_equilibration=True,
+        sim_reporters=[app.StateDataReporter('output_dir/sim_data.log', 1000, potentialEnergy=True, temperature=True), 
+                       app.DCDReporter('output_dir/sim_trajectory.dcd', 1000)],
+        min_reporters=[app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True), app.DCDReporter('tmp/_min_trajectory.dcd', 1000)],
+        nvt_reporters=[app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True), app.DCDReporter('tmp/_nvt_trajectory.dcd', 1000)],
+        npt_reporters=[app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True), app.DCDReporter('tmp/_npt_trajectory.dcd', 1000)],
+        integrator=mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds),
+        additional_forces=[mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin)],
+        forcefields=['amber14/protein.ff14SB.xml', 'amber14/tip3p.xml'],
+        ligand_forcefield='gaff-2.11',
+        solvate=True,
+        solvent_kwargs={'model': 'tip3p', 'padding': 1.0*unit.nanometers},
+        forcefield_kwargs={'constraints': None, 'rigidWater': False, 'removeCMMotion': False},
+        nonperiodic_forcefield_kwargs={'nonbondedMethod' : app.NoCutoff},
+        periodic_forcefield_kwargs={'nonbondedMethod' : app.PME},
+    )

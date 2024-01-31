@@ -1,6 +1,10 @@
 # ignore data and packages
 tmp/
+ras_raf_example/tmp/
 
+ras_raf_example/*.log
+ras_raf_example/*.dcd
+ras_raf_example/*.mdcrd
 slurm-*.out
 _*
 *.prmtop

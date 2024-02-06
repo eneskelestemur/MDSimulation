@@ -49,6 +49,9 @@ class Simulation():
         self.output_dir = output_dir
         self.remove_tmp_files = remove_tmp_files
 
+        # keep track of simulation
+        self.is_simulated = False
+
         # create the tmp directory
         os.makedirs(f'{output_dir}/tmp', exist_ok=True)
 
@@ -292,36 +295,31 @@ class Simulation():
 
         return simulation
     
-    def _minimize(self, simulation: app.Simulation, reporters: list, max_iterations: int=10000):
+    def _minimize(self, simulation: app.Simulation, max_iterations: int=10000):
         '''
             Minimize the energy of the system.
 
             Args:
                 simulation (openmm.Simulation): the simulation object.
-                reporters (list): the list of reporters to use during the minimization.
                 max_iterations (int): the maximum number of iterations to run the minimization for.
 
             Returns:
                 simulation (openmm.Simulation): the simulation object.
         '''
         # minimize the energy
-        [simulation.reporters.append(reporter) for reporter in reporters]
         simulation.minimizeEnergy(maxIterations=max_iterations)
         positions = simulation.context.getState(getPositions=True).getPositions()
         app.PDBFile.writeFile(simulation.topology, positions, open(f'{self.output_dir}/tmp/_minimized.pdb', 'w'))
-        simulation.reporters.clear()
     
-    def _equilibrate_nvt(self, simulation: app.Simulation, reporters: list):
+    def _equilibrate_nvt(self, simulation: app.Simulation):
         '''
             Equilibrate the system in the NVT ensemble for 50 ps.
 
             Args:
                 simulation (openmm.Simulation): the simulation object.
-                reporters (list): the list of reporters to use during the equilibration.
         '''
         # equilibrate in the NVT ensemble
-        [simulation.reporters.append(reporter) for reporter in reporters]
-        temperature = 1e-6
+        temperature = 5
         simulation.context.setVelocitiesToTemperature(temperature*unit.kelvin)
         for _ in range(5000):
             simulation.step(5)
@@ -329,27 +327,22 @@ class Simulation():
             simulation.integrator.setTemperature(temperature*unit.kelvin)
         positions = simulation.context.getState(getPositions=True).getPositions()
         app.PDBFile.writeFile(simulation.topology, positions, open(f'{self.output_dir}/tmp/_nvt_equilibrated.pdb', 'w'))
-        simulation.reporters.clear()
-        simulation.integrator.setTemperature(300*unit.kelvin)
-        simulation.context.reinitialize(True)
     
-    def _equilibrate_npt(self, simulation: app.Simulation, reporters: list):
+    def _equilibrate_npt(self, simulation: app.Simulation, num_steps: int=25000):
         '''
             Equilibrate the system in the NPT ensemble for 50 ps.
 
             Args:
                 simulation (openmm.Simulation): the simulation object.
-                reporters (list): the list of reporters to use during the equilibration.
                 num_steps (int): the number of steps to run the equilibration for.
         '''
         # equilibrate in the NPT ensemble
-        [simulation.reporters.append(reporter) for reporter in reporters]
         simulation.system.addForce(mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin))
         simulation.context.reinitialize(True)
-        simulation.step(25000)
+        simulation.integrator.setTemperature(300*unit.kelvin)
+        simulation.step(num_steps)
         positions = simulation.context.getState(getPositions=True).getPositions()
         app.PDBFile.writeFile(simulation.topology, positions, open(f'{self.output_dir}/tmp/_npt_equilibrated.pdb', 'w'))
-        simulation.reporters.clear()
         simulation.system.removeForce(simulation.system.getNumForces() - 1)
         simulation.context.reinitialize(True)
             
@@ -360,9 +353,7 @@ class Simulation():
             nvt_equilibration=True,
             npt_equilibration=True,
             sim_reporters=None,
-            min_reporters=None,
-            nvt_reporters=None,
-            npt_reporters=None,
+            equil_reporters=None,
             integrator=mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds),
             additional_forces=[mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin)],
             forcefields=['amber14/protein.ff14SB.xml', 'amber14/tip3p.xml'],
@@ -388,15 +379,9 @@ class Simulation():
                 sim_reporters (list): the list of reporters to use during the main simulation.
                     Default: [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
                               app.DCDReporter('{output_dir}/sim_trajectory.dcd', 1000)]
-                min_reporters (list): the list of reporters to use during the minimization.
+                equil_reporters (list): the list of reporters to use during the equilibration, minimization, NVT and NPT.
                     Default: [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
-                              app.DCDReporter('{output_dir}/min_trajectory.dcd', 1000)]
-                nvt_reporters (list): the list of reporters to use during the NVT equilibration.
-                    Default: [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
-                              app.DCDReporter('{output_dir}/nvt_trajectory.dcd', 1000)]
-                npt_reporters (list): the list of reporters to use during the NPT equilibration.
-                    Default: [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
-                              app.DCDReporter('{output_dir}/npt_trajectory.dcd', 1000)]
+                              app.DCDReporter('{output_dir}/equil_trajectory.dcd', 1000)]
                 integrator (openmm.Integrator): the integrator object.
                 additional_forces (list): the list of additional forces to add to the system.
                 forcefields (list): the list of forcefields to use for the protein and solvent.
@@ -412,15 +397,9 @@ class Simulation():
         if sim_reporters is None:
             sim_reporters = [app.StateDataReporter(sys.stdout, 1000, step=True, potentialEnergy=True, temperature=True),
                              app.DCDReporter(f'{self.output_dir}/sim_trajectory.dcd', 1000)]
-        if min_reporters is None:
-            min_reporters = [app.StateDataReporter(sys.stdout, 1000, step=True, potentialEnergy=True, temperature=True),
-                             app.DCDReporter(f'{self.output_dir}/min_trajectory.dcd', 1000)]
-        if nvt_reporters is None:
-            nvt_reporters = [app.StateDataReporter(sys.stdout, 1000, step=True, potentialEnergy=True, temperature=True),
-                             app.DCDReporter(f'{self.output_dir}/nvt_trajectory.dcd', 1000)]
-        if npt_reporters is None:
-            npt_reporters = [app.StateDataReporter(sys.stdout, 1000, step=True, potentialEnergy=True, temperature=True),
-                             app.DCDReporter(f'{self.output_dir}/npt_trajectory.dcd', 1000)]
+        if equil_reporters is None:
+            equil_reporters = [app.StateDataReporter(sys.stdout, 1000, step=True, potentialEnergy=True, temperature=True),
+                               app.DCDReporter(f'{self.output_dir}/equil_trajectory.dcd', 1000)]
         # prepare the simulation
         simulation = self._prepare_simulation(
             proteins=self.proteins,
@@ -435,12 +414,14 @@ class Simulation():
             nonperiodic_forcefield_kwargs=nonperiodic_forcefield_kwargs,
             periodic_forcefield_kwargs=periodic_forcefield_kwargs,
         )
-
+        ## equilibrate the system
+        # reporters
+        [simulation.reporters.append(reporter) for reporter in equil_reporters]
         # minimize the energy
         if minimize:
             start_time = time.time()
             print('\nMinimizing the energy...', flush=True)
-            self._minimize(simulation, min_reporters)
+            self._minimize(simulation)
             print(f'Structure is minimized in {time.time() - start_time} seconds and saved in _minimized.pdb!\n', flush=True)
 
         if nvt_equilibration or npt_equilibration:
@@ -451,39 +432,51 @@ class Simulation():
                 atoms=simulation.topology.atoms(),
                 k=2.0,
             )
+            simulation.context.reinitialize(True)
 
         # nvt equilibration
         if nvt_equilibration:
             start_time = time.time()
             print('\nRunning NVT equilibration...', flush=True)
-            self._equilibrate_nvt(simulation, nvt_reporters)
+            self._equilibrate_nvt(simulation)
             print(f'NVT equilibration is finished in {time.time() - start_time} seconds and saved in _nvt_equilibrated.pdb!\n', flush=True)
 
         # npt equilibration
         if npt_equilibration:
             start_time = time.time()
             print('\nRunning NPT equilibration...', flush=True)
-            self._equilibrate_npt(simulation, npt_reporters)
+            self._equilibrate_npt(simulation)
             print(f'NPT equilibration is finished in {time.time() - start_time} seconds and saved in _npt_equilibrated.pdb!\n', flush=True)
         
         if nvt_equilibration or npt_equilibration:
             # remove the constraints
             simulation.system.removeForce(simulation.system.getNumForces() - 1)
             simulation.context.reinitialize(True)
+        
+        # clear the equilibration reporters
+        simulation.reporters.clear()
 
         # run the simulation
         start_time = time.time()
         print('\nRunning the simulation...', flush=True)
         [simulation.reporters.append(reporter) for reporter in sim_reporters]
+        simulation.integrator.setTemperature(300*unit.kelvin)
         simulation.step(num_steps)
         print(f'System is simulated for {0.002*simulation.currentStep/1000} ns!', flush=True)
 
         # save the final state
-        print('Saving the final state...', flush=True)
         simulation.saveState(f'{self.output_dir}/tmp/_final_state.xml')
+        app.PDBFile.writeFile(simulation.topology, simulation.context.getState(getPositions=True).getPositions(), open(f'{self.output_dir}/simulated_protein.pdb', 'w'))
         print('Final state is saved!', flush=True)
         print(f'Simulation time: {(time.time()-start_time)/60} minutes', flush=True)
         print('\n----------------------------------------\n\n', flush=True)
+
+        # remove the tmp files
+        if self.remove_tmp_files:
+            self.remove_tmp_files()
+
+        # set the simulation flag
+        self.is_simulated = True
 
     @staticmethod
     def plot_StateData(data_file, names_to_plot,
@@ -491,14 +484,14 @@ class Simulation():
                        report_interval=1000, 
                        save=True, show=False):
         '''
-            Plot the data from the StateDataReporter. The file must have "Step" column.
+            Plot the data from the StateDataReporter. 
+            The file must have a "Step" column.
 
             Args:
                 data_file (str): the path to the data file.
                 names_to_plot (list): the list of names to plot.
                     The names should be the same as the columns in the data file.
-                    A standard reporter can include following column names:
-                        Step,
+                    A standard reporter can include following column names:,
                         Potential Energy (kJ/mole),
                         Kinetic Energy (kJ/mole),
                         Total Energy (kJ/mole),
@@ -517,7 +510,10 @@ class Simulation():
         '''
         n_names = len(names_to_plot)
         data = pd.read_csv(data_file, index_col=None)
-        sim_time = data['Step'] * sim_step_size / report_interval # ns
+        try:
+            sim_time = data['Step'] * sim_step_size / report_interval # ns
+        except KeyError:
+            sim_time = data['#"Step"'] * sim_step_size / report_interval # ns
         fig = plt.figure(figsize=(20, 10))
         for i, name in enumerate(names_to_plot):
             ax = fig.add_subplot((n_names+1)//2, 2, i+1)
@@ -527,7 +523,7 @@ class Simulation():
         fig.tight_layout()
 
         if save:
-            fig.savefig(f'{data_file[:-4]}.png')
+            fig.savefig(f'{data_file.split('.')[0]}.png')
 
         if show:
             fig.show()
@@ -536,8 +532,8 @@ class Simulation():
 
     @staticmethod
     def plot_RMSD(traj_file, topology_file, 
-                  labels=['Backbone', r'$C_{\alpha}$', 'Protien', 'Ligand'], 
-                  rmsd_kwargs=None):
+                  labels=['Backbone', 'Protien', 'Ligand',  r'$C_{\alpha}$'], 
+                  rmsd_kwargs=None, save=True):
         '''
             Plot the RMSD data from the DCDReporter. This function
             can use any trajectory file format that MDAnalysis can handle.
@@ -547,8 +543,7 @@ class Simulation():
             alpha carbons of the protein, all protein atoms, and ligand. Note that if the complex
             is a protein-protein complex, then it will be the second protein RMSD instead of the ligand.
 
-            This function will return the RMSD array and the figure object. To save the figure,
-            use the savefig() method of the figure object.
+            This function will also return the RMSD array.
 
             Args:
                 traj_file (str): the path to the DCDReporter file.
@@ -559,16 +554,17 @@ class Simulation():
                 rmsd_kwargs (dict): the keyword arguments for the MDAnalysis.rms.RMSD class.
                     refer to the documentation of MDAnalysis.rms.RMSD for more information.
                     default: {'select': 'backbone', 'groupselections': ['segid A', 'segid B', 'name CA']}
+                save (bool): whether to save the figure or not.
 
             Returns:
                 rmsd (numpy.ndarray): the RMSD array.
-                fig (matplotlib.figure.Figure): the figure object.
         '''
         if rmsd_kwargs is None:
             rmsd_kwargs = {'select': 'backbone', 'groupselections': ['segid A', 'segid B', 'name CA']}
         # load the trajectory
-        universe = mda.Universe(topology=topology_file, coordinates=traj_file, all_coordinates=True)
+        universe = mda.Universe(topology_file, traj_file, all_coordinates=True)
         rmsd = rms.RMSD(
+            universe,
             universe,
             **rmsd_kwargs,
         )
@@ -585,10 +581,13 @@ class Simulation():
         ax.set_ylabel('RMSD (Å)')
         fig.tight_layout()
 
-        return res, fig
+        if save:
+            fig.savefig(f'{traj_file.split(".")[0]}_rmsd.png')
+
+        return res
     
     @staticmethod
-    def plot_RMSF(traj_file, topology_file, segid='A'):
+    def plot_RMSF(traj_file, topology_file, segid='A', save=True):
         '''
             Plot the RMSF data from the DCDReporter. This function
             can use any trajectory file format that MDAnalysis can handle.
@@ -598,8 +597,7 @@ class Simulation():
             is a protein-protein complex, provide the segid of the protein to calculate 
             the RMSF for.
 
-            This function will return the RMSF array and the figure object. To save the figure,
-            use the savefig() method of the figure object.
+            This function will also return the RMSF array and the figure object.
 
             Args:
                 traj_file (str): the path to the DCDReporter file.
@@ -607,22 +605,21 @@ class Simulation():
                     Also, the file can be a list of trajectory files.
                 topology_file (str): the path to the topology file.
                 segid (str): the segid (chain id) of the protein to calculate the RMSF for.
+                save (bool): whether to save the figure or not.
 
             Returns:
                 rmsf (numpy.ndarray): the RMSF array.
-                fig (matplotlib.figure.Figure): the figure object.
         '''
         # load the trajectory
-        universe = mda.Universe(topology=topology_file, coordinates=traj_file, all_coordinates=True)
+        universe = mda.Universe(topology_file, traj_file, all_coordinates=True)
 
         # align the trajectory to the first frame and calculate the average positions
-        align.AlignTraj(universe, universe, select=f'segid {segid} and name CA', in_memory=True).run()
-        ref_coords = universe.trajectory.timeseries(asel=f'segid {segid}').mean(axis=1)
-        ref = mda.Merge(universe).load_new(ref_coords[:, None, :], order="afc")
-        align.AlignTraj(universe, ref, select=f'segid {segid} and name CA', in_memory=True).run()
+        average = align.AverageStructure(universe, universe, select=f'segid {segid} and name CA', in_memory=True).run()
+        ref = average.results.universe
+        aligner = align.AlignTraj(universe, ref, select=f'segid {segid} and name CA', in_memory=True).run()
 
         # calculate the RMSF
-        c_alphas = universe.select_atoms('name CA')
+        c_alphas = universe.select_atoms(f'segid {segid} and name CA')
         rmsf = rms.RMSF(c_alphas).run()
 
         # plot the RMSF
@@ -633,7 +630,10 @@ class Simulation():
         ax.set_ylabel('RMSF (Å)')
         fig.tight_layout()
 
-        return rmsf, fig
+        if save:
+            fig.savefig(f'{traj_file.split(".")[0]}_rmsf.png')
+
+        return rmsf.results.rmsf
     
     @staticmethod
     def plot_Hbonds(data_file, save=True):
@@ -652,7 +652,7 @@ class Simulation():
         raise NotImplementedError('This function is not implemented yet.')
 
     @staticmethod
-    def plot_pairwise_rmsd(traj_file, topology_file, select='backbone'):
+    def plot_pairwise_rmsd(traj_file, topology_file, select='backbone', save=True):
         '''
             Plot the pairwise RMSD data from the DCDReporter. This function
             can use any trajectory file format that MDAnalysis can handle.
@@ -660,21 +660,22 @@ class Simulation():
             This function, by default, will align the trajectory to the first frame 
             by the backbone. Then, it will calculate and plot the pairwise RMSD of the backbone atoms.
 
-            This function will return the pairwise RMSD array and the figure object. To save the figure,
-            use the savefig() method of the figure object.
+            This function will also return the pairwise RMSD array and the figure object.
 
             Args:
                 traj_file (str): the path to the DCDReporter file.
                     This file can be in any format that MDAnalysis can handle.
                     Also, the file can be a list of trajectory files.
                 topology_file (str): the path to the topology file.
+                select (str): the selection string to use for the pairwise RMSD calculation.
+                    refer to the MDAnalysis documentation for more information.
+                save (bool): whether to save the figure or not.
 
             Returns:
                 rmsd (numpy.ndarray): the pairwise RMSD array.
-                fig (matplotlib.figure.Figure): the figure object.
         '''
         # load the trajectory
-        universe = mda.Universe(topology=topology_file, coordinates=traj_file, all_coordinates=True)
+        universe = mda.Universe(topology_file, traj_file, all_coordinates=True)
 
         # align the trajectory to the first frame
         align.AlignTraj(universe, universe, select=select, in_memory=True).run()
@@ -689,10 +690,13 @@ class Simulation():
         ax.imshow(res, cmap='viridis')
         ax.set_xlabel('Frame')
         ax.set_ylabel('Frame')
-        fig.colorbar(label='RMSD (Å)')
+        fig.colorbar(mappable=ax.imshow(res, cmap='viridis'), label='RMSD (Å)')
         fig.tight_layout()
+        
+        if save:
+            fig.savefig(f'{traj_file.split(".")[0]}_pairwise_rmsd.png')
 
-        return res, fig
+        return res
     
 
 # main function
@@ -701,73 +705,53 @@ if __name__ == '__main__':
     # set output directory
     output_dir = 'ras_raf_example'
 
-    # create the simulation object
-    complex_sim = Simulation(
-        protein_files=['ras_raf_example/ras.pdb', 'ras_raf_example/raf.pdb'],
-        ligand_files=None,
-        platform='CUDA',
-        output_dir=output_dir,
-        remove_tmp_files=False,
-    )
-    # run the simulation
-    complex_sim.run_simulation(
-        num_steps=1000000,
-        minimize=True,
-        nvt_equilibration=True,
-        npt_equilibration=True,
-        sim_reporters=[app.StateDataReporter(f'{output_dir}/sim_data.log', 1000, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True), 
-                       app.DCDReporter(f'{output_dir}/sim_trajectory.dcd', 1000), pmd.openmm.MdcrdReporter(f'{output_dir}/sim.mdcrd', 1000, crds=True)],
-        min_reporters=[app.StateDataReporter(f'{output_dir}/min_data.log', 100, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True), 
-                       app.DCDReporter(f'{output_dir}/min_trajectory.dcd', 100), pmd.openmm.MdcrdReporter(f'{output_dir}/min.mdcrd', 1000, crds=True)],
-        nvt_reporters=[app.StateDataReporter(f'{output_dir}/nvt_data.log', 100, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True), 
-                       app.DCDReporter(f'{output_dir}/nvt_trajectory.dcd', 100), pmd.openmm.MdcrdReporter(f'{output_dir}/nvt.mdcrd', 1000, crds=True)],
-        npt_reporters=[app.StateDataReporter(f'{output_dir}/npt_data.log', 100, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True), 
-                       app.DCDReporter(f'{output_dir}/npt_trajectory.dcd', 100), pmd.openmm.MdcrdReporter(f'{output_dir}/npt.mdcrd', 1000, crds=True)],
-        integrator=mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds),
-        additional_forces=[mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin)],
-        forcefields=['amber14/protein.ff14SB.xml', 'amber14/tip3p.xml'],
-        ligand_forcefield='gaff-2.11',
-        solvate=True,
-        solvent_kwargs={'model': 'tip3p', 'padding': 1.0*unit.nanometers},
-        forcefield_kwargs={'constraints': None, 'rigidWater': False, 'removeCMMotion': False},
-        nonperiodic_forcefield_kwargs={'nonbondedMethod' : app.NoCutoff},
-        periodic_forcefield_kwargs={'nonbondedMethod' : app.PME},
-    )
+    # # create the simulation object
+    # complex_sim = Simulation(
+    #     protein_files=['ras_raf_example/ras.pdb', 'ras_raf_example/raf.pdb'],
+    #     ligand_files=None,
+    #     platform='CUDA',
+    #     output_dir=output_dir,
+    #     remove_tmp_files=False,
+    # )
+    # # run the simulation
+    # complex_sim.run_simulation(
+    #     num_steps=1000000,
+    #     minimize=True,
+    #     nvt_equilibration=True,
+    #     npt_equilibration=True,
+    #     sim_reporters=[app.StateDataReporter(f'{output_dir}/sim_data.log', 1000, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True), 
+    #                    app.DCDReporter(f'{output_dir}/sim_trajectory.dcd', 1000), pmd.openmm.MdcrdReporter(f'{output_dir}/sim.mdcrd', 1000, crds=True)],
+    #     equil_reporters=[app.StateDataReporter(f'{output_dir}/equil_data.log', 100, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True), 
+    #                      app.DCDReporter(f'{output_dir}/equil_trajectory.dcd', 100), pmd.openmm.MdcrdReporter(f'{output_dir}/equil.mdcrd', 1000, crds=True)],
+    #     integrator=mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds),
+    #     additional_forces=[mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin)],
+    #     forcefields=['amber14/protein.ff14SB.xml', 'amber14/tip3p.xml'],
+    #     ligand_forcefield='gaff-2.11',
+    #     solvate=True,
+    #     solvent_kwargs={'model': 'tip3p', 'padding': 1.0*unit.nanometers},
+    #     forcefield_kwargs={'constraints': None, 'rigidWater': False, 'removeCMMotion': False},
+    #     nonperiodic_forcefield_kwargs={'nonbondedMethod' : app.NoCutoff},
+    #     periodic_forcefield_kwargs={'nonbondedMethod' : app.PME},
+    # )
 
-    # plots for min
-    Simulation.plot_StateData(f'{output_dir}/min_data.log',
+    # plots for equilibration
+    Simulation.plot_StateData(f'{output_dir}/equil_data.log',
                               ['Potential Energy (kJ/mole)', 'Total Energy (kJ/mole)', 'Temperature (K)', 'Density (g/mL)'],
                               save=True, show=False)
-    Simulation.plot_RMSD(f'{output_dir}/min_trajectory.dcd', f'{output_dir}/tmp/_minimized.pdb',
-                         labels=['Backbone', r'$C_{\alpha}$', 'Ras', 'Raf'], 
-                         rmsd_kwargs=None)[1].savefig(f'{output_dir}/min_rmsd.png')
-
-    # plots for nvt
-    Simulation.plot_StateData(f'{output_dir}/nvt_data.log',
-                              ['Potential Energy (kJ/mole)', 'Total Energy (kJ/mole)', 'Temperature (K)', 'Density (g/mL)'],
-                              save=True, show=False)
-    Simulation.plot_RMSD(f'{output_dir}/nvt_trajectory.dcd', f'{output_dir}/tmp/_nvt_equilibrated.pdb',
-                         labels=['Backbone', r'$C_{\alpha}$', 'Ras', 'Raf'],
-                         rmsd_kwargs=None)[1].savefig(f'{output_dir}/nvt_rmsd.png')
-    
-    # plots for npt
-    Simulation.plot_StateData(f'{output_dir}/npt_data.log',
-                              ['Potential Energy (kJ/mole)', 'Total Energy (kJ/mole)', 'Temperature (K)', 'Density (g/mL)'],
-                              save=True, show=False)
-    Simulation.plot_RMSD(f'{output_dir}/npt_trajectory.dcd', f'{output_dir}/tmp/_npt_equilibrated.pdb',
-                         labels=['Backbone', r'$C_{\alpha}$', 'Ras', 'Raf'],
-                         rmsd_kwargs=None)[1].savefig(f'{output_dir}/npt_rmsd.png')
+    Simulation.plot_RMSD(f'{output_dir}/equil_trajectory.dcd', f'{output_dir}/tmp/_minimized.pdb',
+                         labels=['Backbone', 'Ras', 'Raf', r'$C_{\alpha}$'],
+                         rmsd_kwargs=None, save=True)
     
     # plots for sim
     Simulation.plot_StateData(f'{output_dir}/sim_data.log',
                               ['Potential Energy (kJ/mole)', 'Total Energy (kJ/mole)', 'Temperature (K)', 'Density (g/mL)'],
                               save=True, show=False)
     Simulation.plot_RMSD(f'{output_dir}/sim_trajectory.dcd', f'{output_dir}/tmp/_npt_equilibrated.pdb',
-                         labels=['Backbone', r'$C_{\alpha}$', 'Ras', 'Raf'],
-                         rmsd_kwargs=None)[1].savefig(f'{output_dir}/sim_rmsd.png')
+                         labels=['Backbone', 'Ras', 'Raf', r'$C_{\alpha}$'],
+                         rmsd_kwargs=None, save=True)
     Simulation.plot_RMSF(f'{output_dir}/sim_trajectory.dcd', 
                          f'{output_dir}/tmp/_npt_equilibrated.pdb',
-                           segid='A')[1].savefig(f'{output_dir}/sim_rmsf.png')
+                           segid='A', save=True)
     Simulation.plot_pairwise_rmsd(f'{output_dir}/sim_trajectory.dcd', 
                                   f'{output_dir}/tmp/_npt_equilibrated.pdb', 
-                                  select='backbone')[1].savefig(f'{output_dir}/sim_pairwise_rmsd.png')
+                                  select='backbone')

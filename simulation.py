@@ -807,26 +807,26 @@ if __name__ == '__main__':
         output_dir=output_dir,
         remove_tmp_files=False,
     )
-    # # run the simulation
-    # complex_sim.run_simulation(
-    #     num_steps=1000000,
-    #     minimize=True,
-    #     nvt_equilibration=True,
-    #     npt_equilibration=True,
-    #     sim_reporters=[app.StateDataReporter(f'{output_dir}/sim_data.log', 1000, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True), 
-    #                    app.DCDReporter(f'{output_dir}/sim_trajectory.dcd', 1000), pmd.openmm.MdcrdReporter(f'{output_dir}/sim.mdcrd', 1000, crds=True)],
-    #     equil_reporters=[app.StateDataReporter(f'{output_dir}/equil_data.log', 100, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True), 
-    #                      app.DCDReporter(f'{output_dir}/equil_trajectory.dcd', 100), pmd.openmm.MdcrdReporter(f'{output_dir}/equil.mdcrd', 1000, crds=True)],
-    #     integrator=mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds),
-    #     additional_forces=[mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin)],
-    #     forcefields=['amber14/protein.ff14SB.xml', 'amber14/tip3p.xml'],
-    #     ligand_forcefield='gaff-2.11',
-    #     solvate=True,
-    #     solvent_kwargs={'model': 'tip3p', 'padding': 1.0*unit.nanometers},
-    #     forcefield_kwargs={'constraints': None, 'rigidWater': False, 'removeCMMotion': False},
-    #     nonperiodic_forcefield_kwargs={'nonbondedMethod' : app.NoCutoff},
-    #     periodic_forcefield_kwargs={'nonbondedMethod' : app.PME},
-    # )
+    # run the simulation
+    complex_sim.run_simulation(
+        num_steps=1000000,
+        minimize=True,
+        nvt_equilibration=True,
+        npt_equilibration=True,
+        sim_reporters=[app.StateDataReporter(f'{output_dir}/sim_data.log', 1000, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True), 
+                       app.DCDReporter(f'{output_dir}/sim_trajectory.dcd', 1000), pmd.openmm.MdcrdReporter(f'{output_dir}/sim.mdcrd', 1000, crds=True)],
+        equil_reporters=[app.StateDataReporter(f'{output_dir}/equil_data.log', 100, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True), 
+                         app.DCDReporter(f'{output_dir}/equil_trajectory.dcd', 100), pmd.openmm.MdcrdReporter(f'{output_dir}/equil.mdcrd', 1000, crds=True)],
+        integrator=mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds),
+        additional_forces=[mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin)],
+        forcefields=['amber14/protein.ff14SB.xml', 'amber14/tip3p.xml'],
+        ligand_forcefield='gaff-2.11',
+        solvate=True,
+        solvent_kwargs={'model': 'tip3p', 'padding': 1.0*unit.nanometers},
+        forcefield_kwargs={'constraints': None, 'rigidWater': False, 'removeCMMotion': False},
+        nonperiodic_forcefield_kwargs={'nonbondedMethod' : app.NoCutoff},
+        periodic_forcefield_kwargs={'nonbondedMethod' : app.PME},
+    )
     # calculate the MMGBSA
     complex_sim.calculate_mmgbsa()
 
@@ -850,4 +850,4 @@ if __name__ == '__main__':
                            segid='A', save=True)
     Simulation.plot_pairwise_rmsd(f'{output_dir}/sim_trajectory.dcd', 
                                   f'{output_dir}/tmp/_npt_equilibrated.pdb', 
-                                  select2align='backbone', select2calc='segid B', save=True)
+                                  select2align='backbone', select2calc='segid A', save=True)

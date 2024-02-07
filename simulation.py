@@ -7,6 +7,7 @@ import os
 import sys
 import time
 import argparse
+import subprocess
 import matplotlib.pyplot as plt
 import pandas as pd
 import openmm.app as app
@@ -26,7 +27,7 @@ class Simulation():
     '''
         Simulation class for running MD simulations using OpenMM.
     '''
-    def __init__(self, protein_files, ligand_files=None, platform='CUDA', 
+    def __init__(self, protein_files=None, ligand_files=None, platform='CUDA', 
                  output_dir='MDSimulation', remove_tmp_files=False):
         '''
             Initialize the simulation class.
@@ -41,16 +42,22 @@ class Simulation():
                 output_dir (str): the path to the output directory. This directory will contain the
                     final output files and the tmp directory that will contain the temporary files.
                 remove_tmp_files (bool): whether to remove the temporary files or not after the simulation.
-                    These files will be saved in the tmp directory.
+                    These files will be saved in the tmp directory. These files are needed for the MMGBSA
+                    calculation, so it is recommended to keep them if you want to calculate the MMGBSA later.
+                    You can remove them by calling the remove_tmp_files() method after you are done with the MMGBSA.
         '''
-        self.protein_files = protein_files
+        self.protein_files = protein_files if protein_files is not None else []
         self.ligand_files = ligand_files if ligand_files is not None else []
         self.platform = mm.Platform.getPlatformByName(platform)
         self.output_dir = output_dir
         self.remove_tmp_files = remove_tmp_files
 
         # keep track of simulation
-        self.is_simulated = False
+        # check if the output directory contains the tmp directory
+        if os.path.exists(f'{output_dir}/tmp'):
+            self.is_simulated = True
+        else:
+            self.is_simulated = False
 
         # create the tmp directory
         os.makedirs(f'{output_dir}/tmp', exist_ok=True)
@@ -59,6 +66,26 @@ class Simulation():
         self.proteins = [self._load_protein(protein_file) for protein_file in self.protein_files]
         self.ligands = [self._load_ligand(ligand_file) for ligand_file in self.ligand_files]
         
+    def add_protein(self, protein_file):
+        '''
+            Add a protein to the simulation.
+
+            Args:
+                protein_file (str): the path to the protein file in pdb format.
+        '''
+        self.proteins.append(self._load_protein(protein_file))
+        self.protein_files.append(protein_file)
+
+    def add_ligand(self, ligand_file):
+        '''
+            Add a ligand to the simulation.
+
+            Args:
+                ligand_file (str): the path to the ligand file.
+        '''
+        self.ligands.append(self._load_ligand(ligand_file))
+        self.ligand_files.append(ligand_file)
+
     def _load_protein(self, protein_file):
         '''
             Load the protein file and fix the missing residues, atoms, and nonstandard residues.
@@ -478,6 +505,70 @@ class Simulation():
         # set the simulation flag
         self.is_simulated = True
 
+    def calculate_mmgbsa(self):
+        '''
+            This method will calculate the MMGBSA for the complex.
+            If the simulation does not contain a complex of protein-protein 
+            or protein-ligand, then this method will raise an error. Also,
+            the simulation must include MDCRDReporter.
+
+        '''
+        # check if the simulation is run properly
+        if not self.is_simulated:
+            raise ValueError('The simulation is not run yet. Run the simulation first.')
+        
+        if len(self.ligands) > 0:
+            # prepare the amber topology files for the MMGBSA calculation
+            print('Preparing the amber topology files for the MMP(G)BSA calculation...', flush=True)
+            os.system(f'rm {output_dir}/tmp/_complex.prmtop {output_dir}/tmp/_protein.prmtop {output_dir}/tmp/_ligand.prmtop')
+            subprocess.run(f'ante-MMPBSA.py \
+                    -p {output_dir}/tmp/_complex_solvated.prmtop \
+                    -c {output_dir}/tmp/_complex.prmtop \
+                    -l {output_dir}/tmp/_protein.prmtop \
+                    -r {output_dir}/tmp/_ligand.prmtop \
+                    -s ":WAT,HOH,NA,CL,CIO,CS,IB,K,LI,MG,RB" \
+                    -m ":UNK"', shell=True)
+            # run the MMPBSA.py script on command line
+            print('Calculating MMP(G)BSA for the complex...', flush=True)
+            subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o {output_dir}/mmgbsa_results.dat \
+                        -sp {output_dir}/tmp/_complex_solvated.prmtop \
+                        -cp {output_dir}/tmp/_complex.prmtop \
+                        -rp {output_dir}/tmp/_protein.prmtop \
+                        -lp {output_dir}/tmp/_ligand.prmtop \
+                        -y {output_dir}/*.mdcrd \
+                        -prefix {output_dir}/tmp/_', shell=True)
+        elif len(self.proteins) > 1:
+            # get number of residues in the first protein
+            n_residues = self.proteins[0].topology.getNumResidues()
+            # prepare the amber topology files for the MMGBSA calculation
+            print('Preparing the amber topology files for the MMP(G)BSA calculation...', flush=True)
+            os.system(f'rm {output_dir}/tmp/_complex.prmtop {output_dir}/tmp/_protein0.prmtop {output_dir}/tmp/_protein1.prmtop')
+            subprocess.run(f'ante-MMPBSA.py \
+                    -p {output_dir}/tmp/_complex_solvated.prmtop \
+                    -c {output_dir}/tmp/_complex.prmtop \
+                    -l {output_dir}/tmp/_protein0.prmtop \
+                    -r {output_dir}/tmp/_protein1.prmtop \
+                    -s ":WAT,HOH,NA,CL,CIO,CS,IB,K,LI,MG,RB" \
+                    -n ":1-{n_residues}"', shell=True)
+            # run the MMPBSA.py script on command line
+            print('Calculating MMP(G)BSA for the complex...', flush=True)
+            subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o {output_dir}/mmgbsa_results.dat \
+                        -sp {output_dir}/tmp/_complex_solvated.prmtop \
+                        -cp {output_dir}/tmp/_complex.prmtop \
+                        -rp {output_dir}/tmp/_protein0.prmtop \
+                        -lp {output_dir}/tmp/_protein1.prmtop \
+                        -y {output_dir}/*.mdcrd \
+                        -prefix {output_dir}/tmp/_', shell=True)
+        else:
+            raise ValueError('The simulation does not contain a complex of protein-protein or protein-ligand.')
+        
+        print('MMGBSA calculation is finished!', flush=True)
+        print('Results are saved in mmgbsa_results.dat', flush=True)
+        print('----------------------------------------\n\n', flush=True)
+
+        # clean up the large reference.frc file -- not sure what this file is for
+        os.system('rm reference.frc')
+
     @staticmethod
     def plot_StateData(data_file, names_to_plot,
                        sim_step_size=0.002, 
@@ -652,7 +743,10 @@ class Simulation():
         raise NotImplementedError('This function is not implemented yet.')
 
     @staticmethod
-    def plot_pairwise_rmsd(traj_file, topology_file, select='backbone', save=True):
+    def plot_pairwise_rmsd(traj_file, topology_file, 
+                           select2align='backbone',
+                           select2calc='all',
+                           save=True):
         '''
             Plot the pairwise RMSD data from the DCDReporter. This function
             can use any trajectory file format that MDAnalysis can handle.
@@ -667,8 +761,8 @@ class Simulation():
                     This file can be in any format that MDAnalysis can handle.
                     Also, the file can be a list of trajectory files.
                 topology_file (str): the path to the topology file.
-                select (str): the selection string to use for the pairwise RMSD calculation.
-                    refer to the MDAnalysis documentation for more information.
+                select2align (str): the selection string to use for aligning the trajectory.
+                select2calc (str): the selection string to use for calculating the RMSD.
                 save (bool): whether to save the figure or not.
 
             Returns:
@@ -678,10 +772,10 @@ class Simulation():
         universe = mda.Universe(topology_file, traj_file, all_coordinates=True)
 
         # align the trajectory to the first frame
-        align.AlignTraj(universe, universe, select=select, in_memory=True).run()
+        align.AlignTraj(universe, universe, select=select2align, in_memory=True).run()
 
         # calculate the pairwise RMSD
-        matrix = diffusionmap.DistanceMatrix(universe, select=select).run()
+        matrix = diffusionmap.DistanceMatrix(universe, select=select2calc).run()
         res = matrix.results.dist_matrix
 
         # plot the pairwise RMSD
@@ -705,14 +799,14 @@ if __name__ == '__main__':
     # set output directory
     output_dir = 'ras_raf_example'
 
-    # # create the simulation object
-    # complex_sim = Simulation(
-    #     protein_files=['ras_raf_example/ras.pdb', 'ras_raf_example/raf.pdb'],
-    #     ligand_files=None,
-    #     platform='CUDA',
-    #     output_dir=output_dir,
-    #     remove_tmp_files=False,
-    # )
+    # create the simulation object
+    complex_sim = Simulation(
+        protein_files=['ras_raf_example/ras.pdb', 'ras_raf_example/raf.pdb'],
+        ligand_files=None,
+        platform='CPU',
+        output_dir=output_dir,
+        remove_tmp_files=False,
+    )
     # # run the simulation
     # complex_sim.run_simulation(
     #     num_steps=1000000,
@@ -733,6 +827,8 @@ if __name__ == '__main__':
     #     nonperiodic_forcefield_kwargs={'nonbondedMethod' : app.NoCutoff},
     #     periodic_forcefield_kwargs={'nonbondedMethod' : app.PME},
     # )
+    # calculate the MMGBSA
+    complex_sim.calculate_mmgbsa()
 
     # plots for equilibration
     Simulation.plot_StateData(f'{output_dir}/equil_data.log',
@@ -754,4 +850,4 @@ if __name__ == '__main__':
                            segid='A', save=True)
     Simulation.plot_pairwise_rmsd(f'{output_dir}/sim_trajectory.dcd', 
                                   f'{output_dir}/tmp/_npt_equilibrated.pdb', 
-                                  select='backbone')
+                                  select2align='backbone', select2calc='segid B', save=True)

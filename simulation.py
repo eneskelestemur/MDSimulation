@@ -6,7 +6,6 @@
 import os
 import sys
 import time
-import argparse
 import subprocess
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -127,7 +126,7 @@ class Simulation():
         # load the ligand file
         print('\nLoading the ligand file...', flush=True)
         if ligand_file.endswith('.sdf'):
-            ligand = Molecule.from_file(ligand_file, file_format='sdf')
+            ligand = Molecule.from_file(ligand_file, file_format='sdf', allow_undefined_stereo=True)
         elif ligand_file.endswith('.mol2'):
             ligand = Molecule.from_file(ligand_file, file_format='mol2')
         elif ligand_file.endswith('.pdb'):
@@ -493,7 +492,7 @@ class Simulation():
 
         # save the final state
         simulation.saveState(f'{self.output_dir}/tmp/_final_state.xml')
-        app.PDBFile.writeFile(simulation.topology, simulation.context.getState(getPositions=True).getPositions(), open(f'{self.output_dir}/simulated_protein.pdb', 'w'))
+        app.PDBFile.writeFile(simulation.topology, simulation.context.getState(getPositions=True).getPositions(), open(f'{self.output_dir}/simulated_complex.pdb', 'w'))
         print('Final state is saved!', flush=True)
         print(f'Simulation time: {(time.time()-start_time)/60} minutes', flush=True)
         print('\n----------------------------------------\n\n', flush=True)
@@ -520,45 +519,45 @@ class Simulation():
         if len(self.ligands) > 0:
             # prepare the amber topology files for the MMGBSA calculation
             print('Preparing the amber topology files for the MMP(G)BSA calculation...', flush=True)
-            os.system(f'rm {output_dir}/tmp/_complex.prmtop {output_dir}/tmp/_protein.prmtop {output_dir}/tmp/_ligand.prmtop')
+            os.system(f'rm {self.output_dir}/tmp/_complex.prmtop {self.output_dir}/tmp/_protein.prmtop {self.output_dir}/tmp/_ligand.prmtop')
             subprocess.run(f'ante-MMPBSA.py \
-                    -p {output_dir}/tmp/_complex_solvated.prmtop \
-                    -c {output_dir}/tmp/_complex.prmtop \
-                    -l {output_dir}/tmp/_protein.prmtop \
-                    -r {output_dir}/tmp/_ligand.prmtop \
+                    -p {self.output_dir}/tmp/_complex_solvated.prmtop \
+                    -c {self.output_dir}/tmp/_complex.prmtop \
+                    -l {self.output_dir}/tmp/_protein.prmtop \
+                    -r {self.output_dir}/tmp/_ligand.prmtop \
                     -s ":WAT,HOH,NA,CL,CIO,CS,IB,K,LI,MG,RB" \
                     -m ":UNK"', shell=True)
             # run the MMPBSA.py script on command line
             print('Calculating MMP(G)BSA for the complex...', flush=True)
-            subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o {output_dir}/mmgbsa_results.dat \
-                        -sp {output_dir}/tmp/_complex_solvated.prmtop \
-                        -cp {output_dir}/tmp/_complex.prmtop \
-                        -rp {output_dir}/tmp/_protein.prmtop \
-                        -lp {output_dir}/tmp/_ligand.prmtop \
-                        -y {output_dir}/*.mdcrd \
-                        -prefix {output_dir}/tmp/_', shell=True)
+            subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o {self.output_dir}/mmgbsa_results.dat \
+                        -sp {self.output_dir}/tmp/_complex_solvated.prmtop \
+                        -cp {self.output_dir}/tmp/_complex.prmtop \
+                        -rp {self.output_dir}/tmp/_protein.prmtop \
+                        -lp {self.output_dir}/tmp/_ligand.prmtop \
+                        -y {self.output_dir}/*.mdcrd \
+                        -prefix {self.output_dir}/tmp/_', shell=True)
         elif len(self.proteins) > 1:
             # get number of residues in the first protein
             n_residues = self.proteins[0].topology.getNumResidues()
             # prepare the amber topology files for the MMGBSA calculation
             print('Preparing the amber topology files for the MMP(G)BSA calculation...', flush=True)
-            os.system(f'rm {output_dir}/tmp/_complex.prmtop {output_dir}/tmp/_protein0.prmtop {output_dir}/tmp/_protein1.prmtop')
+            os.system(f'rm {self.output_dir}/tmp/_complex.prmtop {self.output_dir}/tmp/_protein0.prmtop {self.output_dir}/tmp/_protein1.prmtop')
             subprocess.run(f'ante-MMPBSA.py \
-                    -p {output_dir}/tmp/_complex_solvated.prmtop \
-                    -c {output_dir}/tmp/_complex.prmtop \
-                    -l {output_dir}/tmp/_protein0.prmtop \
-                    -r {output_dir}/tmp/_protein1.prmtop \
+                    -p {self.output_dir}/tmp/_complex_solvated.prmtop \
+                    -c {self.output_dir}/tmp/_complex.prmtop \
+                    -l {self.output_dir}/tmp/_protein0.prmtop \
+                    -r {self.output_dir}/tmp/_protein1.prmtop \
                     -s ":WAT,HOH,NA,CL,CIO,CS,IB,K,LI,MG,RB" \
                     -n ":1-{n_residues}"', shell=True)
             # run the MMPBSA.py script on command line
             print('Calculating MMP(G)BSA for the complex...', flush=True)
-            subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o {output_dir}/mmgbsa_results.dat \
-                        -sp {output_dir}/tmp/_complex_solvated.prmtop \
-                        -cp {output_dir}/tmp/_complex.prmtop \
-                        -rp {output_dir}/tmp/_protein0.prmtop \
-                        -lp {output_dir}/tmp/_protein1.prmtop \
-                        -y {output_dir}/*.mdcrd \
-                        -prefix {output_dir}/tmp/_', shell=True)
+            subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o {self.output_dir}/mmgbsa_results.dat \
+                        -sp {self.output_dir}/tmp/_complex_solvated.prmtop \
+                        -cp {self.output_dir}/tmp/_complex.prmtop \
+                        -rp {self.output_dir}/tmp/_protein0.prmtop \
+                        -lp {self.output_dir}/tmp/_protein1.prmtop \
+                        -y {self.output_dir}/*.mdcrd \
+                        -prefix {self.output_dir}/tmp/_', shell=True)
         else:
             raise ValueError('The simulation does not contain a complex of protein-protein or protein-ligand.')
         
@@ -668,7 +667,7 @@ class Simulation():
         for i in range(len(labels)):
             ax.plot(res[:,0], res[:, i+2], label=labels[i])
         ax.legend()
-        ax.set_xlabel('Time (ps)')
+        ax.set_xlabel('Frame')
         ax.set_ylabel('RMSD (Å)')
         fig.tight_layout()
 
@@ -722,7 +721,7 @@ class Simulation():
         fig.tight_layout()
 
         if save:
-            fig.savefig(f'{traj_file.split(".")[0]}_rmsf.png')
+            fig.savefig(f'{traj_file.split(".")[0]}_{segid}_rmsf.png')
 
         return rmsf.results.rmsf
     
@@ -788,66 +787,6 @@ class Simulation():
         fig.tight_layout()
         
         if save:
-            fig.savefig(f'{traj_file.split(".")[0]}_pairwise_rmsd.png')
+            fig.savefig(f'{traj_file.split(".")[0]}_{select2calc}_pairwise_rmsd.png')
 
         return res
-    
-
-# main function
-if __name__ == '__main__':
-    ## test the simulation class
-    # set output directory
-    output_dir = 'ras_raf_example'
-
-    # create the simulation object
-    complex_sim = Simulation(
-        protein_files=['ras_raf_example/ras.pdb', 'ras_raf_example/raf.pdb'],
-        ligand_files=None,
-        platform='CPU',
-        output_dir=output_dir,
-        remove_tmp_files=False,
-    )
-    # run the simulation
-    complex_sim.run_simulation(
-        num_steps=1000000,
-        minimize=True,
-        nvt_equilibration=True,
-        npt_equilibration=True,
-        sim_reporters=[app.StateDataReporter(f'{output_dir}/sim_data.log', 1000, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True), 
-                       app.DCDReporter(f'{output_dir}/sim_trajectory.dcd', 1000), pmd.openmm.MdcrdReporter(f'{output_dir}/sim.mdcrd', 1000, crds=True)],
-        equil_reporters=[app.StateDataReporter(f'{output_dir}/equil_data.log', 100, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True), 
-                         app.DCDReporter(f'{output_dir}/equil_trajectory.dcd', 100), pmd.openmm.MdcrdReporter(f'{output_dir}/equil.mdcrd', 1000, crds=True)],
-        integrator=mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds),
-        additional_forces=[mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin)],
-        forcefields=['amber14/protein.ff14SB.xml', 'amber14/tip3p.xml'],
-        ligand_forcefield='gaff-2.11',
-        solvate=True,
-        solvent_kwargs={'model': 'tip3p', 'padding': 1.0*unit.nanometers},
-        forcefield_kwargs={'constraints': None, 'rigidWater': False, 'removeCMMotion': False},
-        nonperiodic_forcefield_kwargs={'nonbondedMethod' : app.NoCutoff},
-        periodic_forcefield_kwargs={'nonbondedMethod' : app.PME},
-    )
-    # calculate the MMGBSA
-    complex_sim.calculate_mmgbsa()
-
-    # plots for equilibration
-    Simulation.plot_StateData(f'{output_dir}/equil_data.log',
-                              ['Potential Energy (kJ/mole)', 'Total Energy (kJ/mole)', 'Temperature (K)', 'Density (g/mL)'],
-                              save=True, show=False)
-    Simulation.plot_RMSD(f'{output_dir}/equil_trajectory.dcd', f'{output_dir}/tmp/_minimized.pdb',
-                         labels=['Backbone', 'Ras', 'Raf', r'$C_{\alpha}$'],
-                         rmsd_kwargs=None, save=True)
-    
-    # plots for sim
-    Simulation.plot_StateData(f'{output_dir}/sim_data.log',
-                              ['Potential Energy (kJ/mole)', 'Total Energy (kJ/mole)', 'Temperature (K)', 'Density (g/mL)'],
-                              save=True, show=False)
-    Simulation.plot_RMSD(f'{output_dir}/sim_trajectory.dcd', f'{output_dir}/tmp/_npt_equilibrated.pdb',
-                         labels=['Backbone', 'Ras', 'Raf', r'$C_{\alpha}$'],
-                         rmsd_kwargs=None, save=True)
-    Simulation.plot_RMSF(f'{output_dir}/sim_trajectory.dcd', 
-                         f'{output_dir}/tmp/_npt_equilibrated.pdb',
-                           segid='A', save=True)
-    Simulation.plot_pairwise_rmsd(f'{output_dir}/sim_trajectory.dcd', 
-                                  f'{output_dir}/tmp/_npt_equilibrated.pdb', 
-                                  select2align='backbone', select2calc='segid A', save=True)

@@ -1,10 +1,14 @@
 # ignore data and packages
 tmp/
 ras_raf_example/tmp/
+estrogen_ral_example/tmp/
 
 ras_raf_example/*.log
 ras_raf_example/*.dcd
 ras_raf_example/*.mdcrd
+estrogen_ral_example/*.log
+estrogen_ral_example/*.dcd
+estrogen_ral_example/*.mdcrd
 slurm-*.out
 _*
 *.prmtop

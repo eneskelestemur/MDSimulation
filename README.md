@@ -13,9 +13,12 @@ if __name__ == '__main__':
     calculate_mmgbsa(out_dir)
 ```
 
+The above usage is now being depricated. Instead, use the `simulate.py` to carry out the simulation and MM-G(P)BSA calculations. The new `Simulation` class can be used to simulate protein-protein or protein-ligand complexes, and to calculate the MM-G(P)BSA scores from the simulation. It also contains plotting methods to analyze the results. `simulate.py` contains a sample code chunk to run a simulation, calculate scores and plot resulting data. The output directory will contain all the results in the end of the simulation. Currently, `calculate_mmgbsa` method only supports single trajectory method, but it will be updated to support multi-trajectory method as well. A few other modifications will also be done to improve calculations.
+
 ## Logging into highgarden
 
-I've set up accounts for y'all on highgarden. You can access them via: 
+I've set up accounts for y'all on highgarden. You can access them via:
+
 ```bash
 ssh {your_username}@152.2.40.219
 ```
@@ -39,9 +42,17 @@ will force it to use the third GPU (GPU `2`) by making that GPU the only one vis
 ## Running the example code
 
 On highgarden, I've set up a conda environment for y'all to use (`mm`). You should be able to run the example code with the following:
+
 ```bash
 conda activate mm
 python md_sim.py
+```
+
+If you want to run it on longleaf, install mamba on your longleaf account, then run `sh create_env.sh` to create the environment. Once the environment is created, you can use the following to submit slurm jobs:
+
+```bash
+conda activate mm
+sbatch -J md_sim -N 1 -n 4 --mem 16g -p volta-gpu -t 02:00:00 --qos gpu_access --gres gpu:1 --wrap "python simulate.py"
 ```
 
 ## Next steps
@@ -51,3 +62,9 @@ python md_sim.py
 3. Now that you've done this for the actives, try it for the random compounds for the same target. Now plot the distribution of MMGBSA delta Gs for both the actives and random. The active delta Gs should be lower! (We don't have experimental binding affinities for the random compounds, but they will be unlikely to bind).
 4. Repeat for the other targets.
 5. Get the Expected Enrichment Factors for all the targets using EEF code that I will provide shortly...
+
+## Plans to Improve
+
+* Currently, MM-GBSA calculations are done by wrapping the command line call. Try to make it a python function that will take inputs (mmgbsa.in) as arguments.
+* Implement multi-trajectory support for MM-G(P)BSA calculations.
+* Add normal mode analysis to calculate entropy contribution.

@@ -58,8 +58,13 @@ class Simulation():
         else:
             self.is_simulated = False
 
+        # check if the output directory exists, if not create it
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
         # create the tmp directory
-        os.makedirs(f'{output_dir}/tmp', exist_ok=True)
+        tmp_dir = os.path.join(output_dir, 'tmp')
+        os.makedirs(tmp_dir, exist_ok=True)
 
         # load the protein and ligand files
         self.proteins = [self._load_protein(protein_file) for protein_file in self.protein_files]
@@ -93,6 +98,7 @@ class Simulation():
             Args:
                 protein_file (str): the path to the protein file in pdb format.
         '''
+        self.protein_counter = 0
         # load the protein file
         print('\nLoading the protein file...', flush=True)
         protein = PDBFixer(protein_file)
@@ -109,11 +115,14 @@ class Simulation():
         modeller = app.Modeller(protein.topology, protein.positions)
         modeller.addHydrogens(forcefield=app.ForceField('amber/protein.ff14SB.xml'), pH=7.0, platform=self.platform)
         print('Missing hydrogens added!', flush=True)
-        app.PDBFile.writeFile(modeller.topology, modeller.positions, open(f'{self.output_dir}/tmp/_protein.pdb', 'w'))
+        path = os.path.join(self.output_dir, 'tmp', f'_protein{self.protein_counter}.pdb')
+        app.PDBFile.writeFile(modeller.topology, modeller.positions, open(path, 'w'))
         print('Protein is saved in tmp/_protein.pdb!', flush=True)
+        
+        protein = app.PDBFile(path)
+        self.protein_counter += 1
         print('Protein is loaded!\n', flush=True)
-
-        return app.PDBFile(f'{self.output_dir}/tmp/_protein.pdb')
+        return protein
 
     def _load_ligand(self, ligand_file):
         '''
@@ -123,23 +132,48 @@ class Simulation():
             Args:
                 ligand_file (str): the path to the ligand file.
         '''
+        self.ligand_counter = 0
         # load the ligand file
         print('\nLoading the ligand file...', flush=True)
         if ligand_file.endswith('.sdf'):
             ligand = Molecule.from_file(ligand_file, file_format='sdf', allow_undefined_stereo=True)
         elif ligand_file.endswith('.mol2'):
-            ligand = Molecule.from_file(ligand_file, file_format='mol2')
+            ligand = Molecule.from_file(ligand_file, file_format='mol2', allow_undefined_stereo=True)
         elif ligand_file.endswith('.pdb'):
-            ligand = Molecule.from_file(ligand_file, file_format='pdb')
+            ligand = Molecule.from_file(ligand_file, file_format='pdb', allow_undefined_stereo=True)
         else:
             raise ValueError('Ligand file format not recognized. It should be sdf, mol2 or pdb.')
         if isinstance(ligand, list):
             raise ValueError('Ligand file should contain only one molecule.')
-        ligand.to_file(f'{self.output_dir}/tmp/_ligand.mol2', file_format='MOL')
-        print('Ligand is saved in tmp/_ligand.mol2!', flush=True)
+        path = os.path.join(self.output_dir, 'tmp', f'_ligand{self.ligand_counter}.sdf')
+        ligand.to_file(path, file_format='sdf')
+        print('Ligand is saved in tmp/_ligand.sdf!', flush=True)
         print('Ligand is loaded!\n', flush=True)
 
         return ligand
+    
+    @staticmethod
+    def pdb_from_mdcrd(topology, mdcrd, output, n_atom=None, hasbox=False):
+        '''
+            Create a pdb file from the mdcrd file.
+
+            Args:
+                topology (str): the path to the topology file.
+                mdcrd (str): the path to the mdcrd file.
+                output (str): the path to the output pdb file.
+                natom (int): The number of atoms from which 
+                    the file was written
+                hasbox (bool): Whether unit cell information is 
+                    stored in this trajectory file
+        '''
+        # load the topology and trajectory using parmed
+        if n_atom is None:
+            structure = pmd.load_file(topology)
+            n_atom = len(structure.atoms)
+        traj = pmd.load_file(mdcrd, natom=n_atom, hasbox=hasbox)
+        structure = pmd.load_file(topology, xyz=traj.coordinates, box=traj.box)
+        # save the structure as pdb
+        structure.save(output)
 
     def _save_amber_files(self, topology, system, positions, gb_radii='mbondi2'):
         '''
@@ -162,7 +196,8 @@ class Simulation():
         amber_parm = pmd.amber.AmberParm.from_structure(struct)
         radii_update = pmd.tools.actions.changeRadii(amber_parm, gb_radii)
         radii_update.execute()
-        amber_parm.write_parm(f'{self.output_dir}/tmp/_complex_solvated.prmtop')
+        path = os.path.join(self.output_dir, 'tmp', '_complex_solvated.prmtop')
+        amber_parm.write_parm(path)
         print('Solvated complex is saved as prmtop!', flush=True)
 
     def _prepare_system_topology(
@@ -203,16 +238,18 @@ class Simulation():
             for ligand in ligands:
                 ligand_topology = ligand.to_topology()
                 modeller.add(ligand_topology.to_openmm(), ligand_topology.get_positions().to_openmm())
-        app.PDBFile.writeFile(modeller.topology, modeller.positions, open(f'{self.output_dir}/tmp/_complex.pdb', 'w'))
-        print('Complex is saved in tmp/_complex.pdb!', flush=True)
+        path = os.path.join(self.output_dir, 'tmp', '_complex.pdb')
+        app.PDBFile.writeFile(modeller.topology, modeller.positions, open(path, 'w'))
+        print('Complex is formed and saved in tmp/_complex.pdb!', flush=True)
 
         # solvate the complex
         if solvate:
+            start_time = time.time()
             print('Solvating the complex...', flush=True)
             modeller.addSolvent(forcefield=forcefield, **solvation_kwargs)
-            app.PDBFile.writeFile(modeller.topology, modeller.positions, open(f'{self.output_dir}/tmp/_complex_solvated.pdb', 'w'))
-            print('Solvated Complex is saved in tmp/_complex_solvated.pdb!', flush=True)
-            print('Complex is solvated!', flush=True)
+            path = os.path.join(self.output_dir, 'tmp', '_complex_solvated.pdb')
+            app.PDBFile.writeFile(modeller.topology, modeller.positions, open(path, 'w'))
+            print(f'Complex is solvated in {time.time() - start_time} seconds and saved in tmp/_complex_solvated.pdb!', flush=True)
 
         return modeller
 
@@ -221,7 +258,8 @@ class Simulation():
             Remove the temporary files.
         '''
         # remove the tmp directory
-        os.system(f'rm -rf {self.output_dir}/tmp')
+        path = os.path.join(self.output_dir, 'tmp')
+        os.system(f'rm -rf {path}')
 
     def _constrain_backbone(self, system: mm.System, positions, atoms, k):
         '''
@@ -335,7 +373,8 @@ class Simulation():
         # minimize the energy
         simulation.minimizeEnergy(maxIterations=max_iterations)
         positions = simulation.context.getState(getPositions=True).getPositions()
-        app.PDBFile.writeFile(simulation.topology, positions, open(f'{self.output_dir}/tmp/_minimized.pdb', 'w'))
+        path = os.path.join(self.output_dir, 'tmp', '_minimized.pdb')
+        app.PDBFile.writeFile(simulation.topology, positions, open(path, 'w'))
     
     def _equilibrate_nvt(self, simulation: app.Simulation):
         '''
@@ -352,7 +391,8 @@ class Simulation():
             temperature += 0.012*5
             simulation.integrator.setTemperature(temperature*unit.kelvin)
         positions = simulation.context.getState(getPositions=True).getPositions()
-        app.PDBFile.writeFile(simulation.topology, positions, open(f'{self.output_dir}/tmp/_nvt_equilibrated.pdb', 'w'))
+        path = os.path.join(self.output_dir, 'tmp', '_nvt_equilibrated.pdb')
+        app.PDBFile.writeFile(simulation.topology, positions, open(path, 'w'))
     
     def _equilibrate_npt(self, simulation: app.Simulation, num_steps: int=25000):
         '''
@@ -368,7 +408,8 @@ class Simulation():
         simulation.integrator.setTemperature(300*unit.kelvin)
         simulation.step(num_steps)
         positions = simulation.context.getState(getPositions=True).getPositions()
-        app.PDBFile.writeFile(simulation.topology, positions, open(f'{self.output_dir}/tmp/_npt_equilibrated.pdb', 'w'))
+        path = os.path.join(self.output_dir, 'tmp', '_npt_equilibrated.pdb')
+        app.PDBFile.writeFile(simulation.topology, positions, open(path, 'w'))
         simulation.system.removeForce(simulation.system.getNumForces() - 1)
         simulation.context.reinitialize(True)
             
@@ -391,7 +432,9 @@ class Simulation():
             periodic_forcefield_kwargs={'nonbondedMethod' : app.PME},
     ):
         '''
-            Run the simulation.
+            Run the simulation. 
+
+            Note that to run MMGBSA calculation, an mdcrd reporter must be used during the simulation.
 
             Args:
                 num_steps (int): the number of steps to run the simulation for.
@@ -403,11 +446,13 @@ class Simulation():
                     The protein is constrained during the equilibration by 
                     the strength of 2 kcal/mol·Å2. 
                 sim_reporters (list): the list of reporters to use during the main simulation.
-                    Default: [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
-                              app.DCDReporter('{output_dir}/sim_trajectory.dcd', 1000)]
+                    Default: [app.StateDataReporter('{output_dir}/sim_data.log', 1000, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True),
+                              app.DCDReporter('{output_dir}/sim_trajectory.dcd', 1000), 
+                              pmd.openmm.MdcrdReporter('{output_dir}/sim.mdcrd', 1000, crds=True)]
                 equil_reporters (list): the list of reporters to use during the equilibration, minimization, NVT and NPT.
-                    Default: [app.StateDataReporter(sys.stdout, 1000, potentialEnergy=True, temperature=True),
-                              app.DCDReporter('{output_dir}/equil_trajectory.dcd', 1000)]
+                    Default: [app.StateDataReporter('{output_dir}/equil_data.log', 1000, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True),
+                              app.DCDReporter('{output_dir}/equil_trajectory.dcd', 1000),
+                              pmd.openmm.MdcrdReporter('{output_dir}/equil.mdcrd', 1000, crds=True)]
                 integrator (openmm.Integrator): the integrator object.
                 additional_forces (list): the list of additional forces to add to the system.
                 forcefields (list): the list of forcefields to use for the protein and solvent.
@@ -421,11 +466,13 @@ class Simulation():
         '''
         # check the reporters
         if sim_reporters is None:
-            sim_reporters = [app.StateDataReporter(sys.stdout, 1000, step=True, potentialEnergy=True, temperature=True),
-                             app.DCDReporter(f'{self.output_dir}/sim_trajectory.dcd', 1000)]
+            sim_reporters = [app.StateDataReporter(os.path.join(self.output_dir, 'sim_data.log'), 1000, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True),
+                             app.DCDReporter(os.path.join(self.output_dir, 'sim_trajectory.dcd'), 1000), 
+                             pmd.openmm.MdcrdReporter(os.path.join(self.output_dir, 'sim.mdcrd'), 1000, crds=True)]
         if equil_reporters is None:
-            equil_reporters = [app.StateDataReporter(sys.stdout, 1000, step=True, potentialEnergy=True, temperature=True),
-                               app.DCDReporter(f'{self.output_dir}/equil_trajectory.dcd', 1000)]
+            equil_reporters = [app.StateDataReporter(os.path.join(self.output_dir, 'equil_data.log'), 1000, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True),
+                               app.DCDReporter(os.path.join(self.output_dir, 'equil_trajectory.log'), 1000), 
+                               pmd.openmm.MdcrdReporter(os.path.join(self.output_dir, 'equil.mdcrd'), 1000, crds=True)]
         # prepare the simulation
         simulation = self._prepare_simulation(
             proteins=self.proteins,
@@ -491,7 +538,8 @@ class Simulation():
         print(f'System is simulated for {0.002*simulation.currentStep/1000} ns!', flush=True)
 
         # save the final state
-        simulation.saveState(f'{self.output_dir}/tmp/_final_state.xml')
+        path = os.path.join(self.output_dir, 'tmp', '_final_state.xml')
+        simulation.saveState(path)
         app.PDBFile.writeFile(simulation.topology, simulation.context.getState(getPositions=True).getPositions(), open(f'{self.output_dir}/simulated_complex.pdb', 'w'))
         print('Final state is saved!', flush=True)
         print(f'Simulation time: {(time.time()-start_time)/60} minutes', flush=True)
@@ -519,45 +567,49 @@ class Simulation():
         if len(self.ligands) > 0:
             # prepare the amber topology files for the MMGBSA calculation
             print('Preparing the amber topology files for the MMP(G)BSA calculation...', flush=True)
-            os.system(f'rm {self.output_dir}/tmp/_complex.prmtop {self.output_dir}/tmp/_protein.prmtop {self.output_dir}/tmp/_ligand.prmtop')
+            os.system(f'rm {os.path.join(self.output_dir, "tmp", "_complex.prmtop")} \
+                           {os.path.join(self.output_dir, "tmp", "_protein.prmtop")} \
+                           {os.path.join(self.output_dir, "tmp", "_ligand.prmtop")}')
             subprocess.run(f'ante-MMPBSA.py \
-                    -p {self.output_dir}/tmp/_complex_solvated.prmtop \
-                    -c {self.output_dir}/tmp/_complex.prmtop \
-                    -l {self.output_dir}/tmp/_protein.prmtop \
-                    -r {self.output_dir}/tmp/_ligand.prmtop \
-                    -s ":WAT,HOH,NA,CL,CIO,CS,IB,K,LI,MG,RB" \
-                    -m ":UNK"', shell=True)
+                            -p {os.path.join(self.output_dir, "tmp", "_complex_solvated.prmtop")} \
+                            -c {os.path.join(self.output_dir, "tmp", "_complex.prmtop")} \
+                            -l {os.path.join(self.output_dir, "tmp", "_protein.prmtop")} \
+                            -r {os.path.join(self.output_dir, "tmp", "_ligand.prmtop")} \
+                            -s ":WAT,HOH,NA,CL,CIO,CS,IB,K,LI,MG,RB" \
+                            -m ":UNK"', shell=True)
             # run the MMPBSA.py script on command line
             print('Calculating MMP(G)BSA for the complex...', flush=True)
-            subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o {self.output_dir}/mmgbsa_results.dat \
-                        -sp {self.output_dir}/tmp/_complex_solvated.prmtop \
-                        -cp {self.output_dir}/tmp/_complex.prmtop \
-                        -rp {self.output_dir}/tmp/_protein.prmtop \
-                        -lp {self.output_dir}/tmp/_ligand.prmtop \
-                        -y {self.output_dir}/*.mdcrd \
-                        -prefix {self.output_dir}/tmp/_', shell=True)
+            subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o {os.path.join(self.output_dir, "mmgbsa_results.dat")} \
+                            -sp {os.path.join(self.output_dir, "tmp", "_complex_solvated.prmtop")} \
+                            -cp {os.path.join(self.output_dir, "tmp", "_complex.prmtop")} \
+                            -rp {os.path.join(self.output_dir, "tmp", "_protein.prmtop")} \
+                            -lp {os.path.join(self.output_dir, "tmp", "_ligand.prmtop")} \
+                            -y {os.path.join(self.output_dir, "*.mdcrd")} \
+                            -prefix {os.path.join(self.output_dir, "tmp", "_")}', shell=True)
         elif len(self.proteins) > 1:
             # get number of residues in the first protein
             n_residues = self.proteins[0].topology.getNumResidues()
             # prepare the amber topology files for the MMGBSA calculation
             print('Preparing the amber topology files for the MMP(G)BSA calculation...', flush=True)
-            os.system(f'rm {self.output_dir}/tmp/_complex.prmtop {self.output_dir}/tmp/_protein0.prmtop {self.output_dir}/tmp/_protein1.prmtop')
+            os.system(f'rm {os.path.join(self.output_dir, "tmp", "_complex.prmtop")} \
+                           {os.path.join(self.output_dir, "tmp", "_protein0.prmtop")} \
+                           {os.path.join(self.output_dir, "tmp", "_protein1.prmtop")}')
             subprocess.run(f'ante-MMPBSA.py \
-                    -p {self.output_dir}/tmp/_complex_solvated.prmtop \
-                    -c {self.output_dir}/tmp/_complex.prmtop \
-                    -l {self.output_dir}/tmp/_protein0.prmtop \
-                    -r {self.output_dir}/tmp/_protein1.prmtop \
-                    -s ":WAT,HOH,NA,CL,CIO,CS,IB,K,LI,MG,RB" \
-                    -n ":1-{n_residues}"', shell=True)
+                            -p {os.path.join(self.output_dir, "tmp", "_complex_solvated.prmtop")} \
+                            -c {os.path.join(self.output_dir, "tmp", "_complex.prmtop")} \
+                            -l {os.path.join(self.output_dir, "tmp", "_protein0.prmtop")} \
+                            -r {os.path.join(self.output_dir, "tmp", "_protein1.prmtop")} \
+                            -s ":WAT,HOH,NA,CL,CIO,CS,IB,K,LI,MG,RB" \
+                            -n ":1-{n_residues}"', shell=True)
             # run the MMPBSA.py script on command line
             print('Calculating MMP(G)BSA for the complex...', flush=True)
-            subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o {self.output_dir}/mmgbsa_results.dat \
-                        -sp {self.output_dir}/tmp/_complex_solvated.prmtop \
-                        -cp {self.output_dir}/tmp/_complex.prmtop \
-                        -rp {self.output_dir}/tmp/_protein0.prmtop \
-                        -lp {self.output_dir}/tmp/_protein1.prmtop \
-                        -y {self.output_dir}/*.mdcrd \
-                        -prefix {self.output_dir}/tmp/_', shell=True)
+            subprocess.run(f'MMPBSA.py -O -i mmgbsa.in -o {os.path.join(self.output_dir, "mmgbsa_results.dat")} \
+                            -sp {os.path.join(self.output_dir, "tmp", "_complex_solvated.prmtop")} \
+                            -cp {os.path.join(self.output_dir, "tmp", "_complex.prmtop")} \
+                            -rp {os.path.join(self.output_dir, "tmp", "_protein0.prmtop")} \
+                            -lp {os.path.join(self.output_dir, "tmp", "_protein1.prmtop")} \
+                            -y {os.path.join(self.output_dir, "*.mdcrd")} \
+                            -prefix {os.path.join(self.output_dir, "tmp", "_")}', shell=True)
         else:
             raise ValueError('The simulation does not contain a complex of protein-protein or protein-ligand.')
         

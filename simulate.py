@@ -13,12 +13,14 @@ from simulation import Simulation
 
 ## An example of simulating a protein-ligand complex using the Simulation class
 # set output directory
-output_dir = 'estrogen_ral_example'
+output_dir = 'CBP_active0'
+protein_file = 'bayesbind_small/CBP_HUMAN_1079_1197_0/rec_hs.pdb'
+ligand_file = 'bayesbind_small/CBP_HUMAN_1079_1197_0/active0.sdf'
 
 # create the simulation object
 complex_sim = Simulation(
-    protein_files=[f'{output_dir}/Estrogen_Receptor.pdb'],
-    ligand_files=[f'{output_dir}/Raloxifene.sdf'],
+    protein_files=[protein_file],
+    ligand_files=[ligand_file],
     platform='CUDA',
     output_dir=output_dir,
     remove_tmp_files=False,
@@ -52,7 +54,7 @@ complex_sim.calculate_mmgbsa()
 Simulation.plot_StateData(f'{output_dir}/equil_data.log',
                             ['Potential Energy (kJ/mole)', 'Total Energy (kJ/mole)', 'Temperature (K)', 'Density (g/mL)'],
                             save=True, show=False)
-Simulation.plot_RMSD(f'{output_dir}/equil_trajectory.dcd', f'{output_dir}/simulated_complex.pdb',
+Simulation.plot_RMSD(f'{output_dir}/equil_trajectory.dcd', f'{output_dir}/minimized_complex.pdb',
                         labels=['Backbone', 'Protein', 'Ligand', r'$C_{\alpha}$'],
                         rmsd_kwargs=None, save=True)
 
@@ -60,15 +62,15 @@ Simulation.plot_RMSD(f'{output_dir}/equil_trajectory.dcd', f'{output_dir}/simula
 Simulation.plot_StateData(f'{output_dir}/sim_data.log',
                             ['Potential Energy (kJ/mole)', 'Total Energy (kJ/mole)', 'Temperature (K)', 'Density (g/mL)'],
                             save=True, show=False)
-Simulation.plot_RMSD(f'{output_dir}/sim_trajectory.dcd', f'{output_dir}/simulated_complex.pdb',
+Simulation.plot_RMSD(f'{output_dir}/sim_trajectory.dcd', f'{output_dir}/minimized_complex.pdb',
                         labels=['Backbone', 'Protein', 'Ligand', r'$C_{\alpha}$'],
                         rmsd_kwargs=None, save=True)
 Simulation.plot_RMSF(f'{output_dir}/sim_trajectory.dcd', 
-                        f'{output_dir}/simulated_complex.pdb',
+                        f'{output_dir}/minimized_complex.pdb',
                         segid='A', save=True)
 Simulation.plot_pairwise_rmsd(f'{output_dir}/sim_trajectory.dcd', 
-                                f'{output_dir}/simulated_complex.pdb', 
+                                f'{output_dir}/minimized_complex.pdb', 
                                 select2align='backbone', select2calc='segid A', save=True)
 Simulation.plot_pairwise_rmsd(f'{output_dir}/sim_trajectory.dcd', 
-                                f'{output_dir}/simulated_complex.pdb', 
+                                f'{output_dir}/minimized_complex.pdb', 
                                 select2align='backbone', select2calc='segid B', save=True)

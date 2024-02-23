@@ -372,8 +372,8 @@ class Simulation():
         '''
         # minimize the energy
         simulation.minimizeEnergy(maxIterations=max_iterations)
-        positions = simulation.context.getState(getPositions=True).getPositions()
-        path = os.path.join(self.output_dir, 'tmp', '_minimized.pdb')
+        positions = simulation.context.getState(getPositions=True, enforcePeriodicBox=True).getPositions()
+        path = os.path.join(self.output_dir, 'minimized_complex.pdb')
         app.PDBFile.writeFile(simulation.topology, positions, open(path, 'w'))
     
     def _equilibrate_nvt(self, simulation: app.Simulation):
@@ -390,7 +390,7 @@ class Simulation():
             simulation.step(5)
             temperature += 0.012*5
             simulation.integrator.setTemperature(temperature*unit.kelvin)
-        positions = simulation.context.getState(getPositions=True).getPositions()
+        positions = simulation.context.getState(getPositions=True, enforcePeriodicBox=True).getPositions()
         path = os.path.join(self.output_dir, 'tmp', '_nvt_equilibrated.pdb')
         app.PDBFile.writeFile(simulation.topology, positions, open(path, 'w'))
     
@@ -407,7 +407,7 @@ class Simulation():
         simulation.context.reinitialize(True)
         simulation.integrator.setTemperature(300*unit.kelvin)
         simulation.step(num_steps)
-        positions = simulation.context.getState(getPositions=True).getPositions()
+        positions = simulation.context.getState(getPositions=True, enforcePeriodicBox=True).getPositions()
         path = os.path.join(self.output_dir, 'tmp', '_npt_equilibrated.pdb')
         app.PDBFile.writeFile(simulation.topology, positions, open(path, 'w'))
         simulation.system.removeForce(simulation.system.getNumForces() - 1)
@@ -495,13 +495,13 @@ class Simulation():
             start_time = time.time()
             print('\nMinimizing the energy...', flush=True)
             self._minimize(simulation)
-            print(f'Structure is minimized in {time.time() - start_time} seconds and saved in _minimized.pdb!\n', flush=True)
+            print(f'Structure is minimized in {time.time() - start_time} seconds and saved in minimized_complex.pdb!\n', flush=True)
 
         if nvt_equilibration or npt_equilibration:
             # constrain the protein
             self._constrain_backbone(
                 system=simulation.system,
-                positions=simulation.context.getState(getPositions=True).getPositions(),
+                positions=simulation.context.getState(getPositions=True, enforcePeriodicBox=True).getPositions(),
                 atoms=simulation.topology.atoms(),
                 k=2.0,
             )
@@ -540,7 +540,7 @@ class Simulation():
         # save the final state
         path = os.path.join(self.output_dir, 'tmp', '_final_state.xml')
         simulation.saveState(path)
-        app.PDBFile.writeFile(simulation.topology, simulation.context.getState(getPositions=True).getPositions(), open(f'{self.output_dir}/simulated_complex.pdb', 'w'))
+        app.PDBFile.writeFile(simulation.topology, simulation.context.getState(getPositions=True, enforcePeriodicBox=True).getPositions(), open(f'{self.output_dir}/simulated_complex.pdb', 'w'))
         print('Final state is saved!', flush=True)
         print(f'Simulation time: {(time.time()-start_time)/60} minutes', flush=True)
         print('\n----------------------------------------\n\n', flush=True)

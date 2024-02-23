@@ -2,7 +2,7 @@ Input file for running PB and GB
 &general
   keep_files=2, debug_printlevel=1,
   strip_mask=":WAT:HOH:CL:CIO:CS:IB:K:LI:MG:NA:RB",
-  startframe=1, endframe=1000, interval=25,
+  startframe=250, endframe=1500, interval=25,
 /
 &gb
   igb=5, saltcon=0.100,

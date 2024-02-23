@@ -9,9 +9,12 @@ ras_raf_example/*.mdcrd
 estrogen_ral_example/*.log
 estrogen_ral_example/*.dcd
 estrogen_ral_example/*.mdcrd
+
 slurm-*.out
 _*
 *.prmtop
 *.inpcrd
 *.mdcrd
+*.dcd
+*.log
 *.frc

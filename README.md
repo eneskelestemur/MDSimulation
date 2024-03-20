@@ -1,19 +1,6 @@
 # MMGBSA/MMPBSA in OpenMM
 
-Amber has utilities for running + analyzing MMGBSA simulations ([here](https://ambermd.org/tutorials/advanced/tutorial3/) is a tutorial), but they are annoying to use. The `md_sim.py` script here runs the simulation in OpenMM and analyses the results using amber's tools. If you run the script now, it will run MMGBSA on the example complex in this folder. As you can see at the bottom of the file, there are two functions you need to use:
-
-```python
-if __name__ == '__main__':
-    out_dir = 'example_results'
-    # first simulate the complex. This will take a while.
-    simulate_complex('1uom_A_rec.pdb', '1uom_pti_lig.sdf', out_dir)
-    # now calculate MMGBSA from the simulation results. This stores everything to
-    # {out_dir}/mmgbsa_results.dat. This is a plan text file that should be pretty easy
-    # to parse. 
-    calculate_mmgbsa(out_dir)
-```
-
-The above usage is now being depricated. Instead, use the `simulate.py` to carry out the simulation and MM-G(P)BSA calculations. The new `Simulation` class can be used to simulate protein-protein or protein-ligand complexes, and to calculate the MM-G(P)BSA scores from the simulation. It also contains plotting methods to analyze the results. `simulate.py` contains a sample code chunk to run a simulation, calculate scores and plot resulting data. The output directory will contain all the results in the end of the simulation. Currently, `calculate_mmgbsa` method only supports single trajectory method, but it will be updated to support multi-trajectory method as well. A few other modifications will also be done to improve calculations.
+Amber has utilities for running + analyzing MMGBSA simulations ([here](https://ambermd.org/tutorials/advanced/tutorial3/) is a tutorial), but they are annoying to use. Instead, use the `simulate.py` to carry out the simulation and MM-G(P)BSA calculations. The `Simulation` class can be used to simulate protein-protein or protein-ligand complexes, and to calculate the MM-G(P)BSA scores from the simulation. It also contains plotting methods to analyze the results. `simulate.py` contains a sample code chunk to run a simulation, calculate scores and plot resulting data. The output directory will contain all the results in the end of the simulation. Currently, `calculate_mmgbsa` method only supports single trajectory method, but it will be updated to support multi-trajectory method as well. A few other modifications will also be done to improve calculations.
 
 ## Logging into highgarden
 
@@ -45,7 +32,7 @@ On highgarden, I've set up a conda environment for y'all to use (`mm`). You shou
 
 ```bash
 conda activate mm
-python md_sim.py
+python simulate.py
 ```
 
 If you want to run it on longleaf, install mamba on your longleaf account, then run `sh create_env.sh` to create the environment. Once the environment is created, you can use the following to submit slurm jobs:
@@ -67,4 +54,4 @@ sbatch -J md_sim -N 1 -n 4 --mem 16g -p volta-gpu -t 02:00:00 --qos gpu_access -
 
 * Currently, MM-GBSA calculations are done by wrapping the command line call. Try to make it a python function that will take inputs (mmgbsa.in) as arguments.
 * Implement multi-trajectory support for MM-G(P)BSA calculations.
-* Add normal mode analysis to calculate entropy contribution.
+* Add normal mode analysis to calculate entropic contribution.

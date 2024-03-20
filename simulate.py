@@ -13,9 +13,9 @@ from simulation import Simulation
 
 ## An example of simulating a protein-ligand complex using the Simulation class
 # set output directory
-output_dir = 'CBP_active0'
-protein_file = 'bayesbind_small/CBP_HUMAN_1079_1197_0/rec_hs.pdb'
-ligand_file = 'bayesbind_small/CBP_HUMAN_1079_1197_0/active0.sdf'
+output_dir = 'estrogen_ral_example'
+protein_file = 'estrogen_ral_example/Estrogen_Receptor.pdb'
+ligand_file = 'estrogen_ral_example/Raloxifene.sdf'
 
 # create the simulation object
 complex_sim = Simulation(

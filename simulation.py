@@ -229,15 +229,31 @@ class Simulation():
             Returns:
                 modeller (openmm.Modeller): the modeller object that contains the topology 
                     and positions of the system.
+
+            Raises:
+                ValueError: if no protein or ligand is provided.
         '''
+        if len(proteins) == 0 and len(ligands) == 0:
+            raise ValueError('At least one protein or ligand must be provided.')
+        
         # use modeller to create topology of the system
-        modeller = app.Modeller(proteins[0].topology, proteins[0].positions)
+        if len(proteins) > 0 and len(ligands) == 0:
+            modeller = app.Modeller(proteins[0].topology, proteins[0].positions)
+        elif len(proteins) == 0 and len(ligands) > 0:
+            ligand_topology = ligands[0].to_topology()
+            modeller = app.Modeller(ligand_topology.to_openmm(), ligand_topology.get_positions().to_openmm())
+        else:
+            modeller = app.Modeller(proteins[0].topology, proteins[0].positions)
+            ligand_topology = ligands[0].to_topology()
+            modeller.add(ligand_topology.to_openmm(), ligand_topology.get_positions().to_openmm())
+        
+        # add the rest of the proteins and ligands
         for protein in proteins[1:]:
             modeller.add(protein.topology, protein.positions)
-        if ligands is not None:
-            for ligand in ligands:
-                ligand_topology = ligand.to_topology()
-                modeller.add(ligand_topology.to_openmm(), ligand_topology.get_positions().to_openmm())
+        for ligand in ligands[1:]:
+            ligand_topology = ligand.to_topology()
+            modeller.add(ligand_topology.to_openmm(), ligand_topology.get_positions().to_openmm())
+
         path = os.path.join(self.output_dir, 'tmp', '_complex.pdb')
         app.PDBFile.writeFile(modeller.topology, modeller.positions, open(path, 'w'))
         print('Complex is formed and saved in tmp/_complex.pdb!', flush=True)

@@ -2,6 +2,7 @@
 tmp/
 ras_raf_example/tmp/
 estrogen_ral_example/tmp/
+bayesbind_struct/
 
 ras_raf_example/*.log
 ras_raf_example/*.dcd

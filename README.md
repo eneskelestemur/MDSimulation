@@ -1,6 +1,12 @@
-# MMGBSA/MMPBSA in OpenMM
+# MD Simulation of Biomolecular Complexes in OpenMM
+
+Setting up Molecular Dynamic (MD) simulations of biomolecular complexes can be exhaustive with Amber or GROMACS. This repository aims to provide a simple automated MD simulation setup for biomolecular complexes using OpenMM. From given pdb file (for RNA, DNA or protein) and/or sdf (for small molecules), the `Simulation` class will create an OpenMM simulation object to run simulations. Thanks to [OpenMM](https://openmm.org/) and [openff](https://openforcefield.org/), fixing the input files, creating small molecule forcefield templates, forming the complex system and many more preparation steps are automated. See `simulate.py` for an example.
+
+## MMGBSA/MMPBSA Calculations
 
 Amber has utilities for running + analyzing MMGBSA simulations ([here](https://ambermd.org/tutorials/advanced/tutorial3/) is a tutorial), but they are annoying to use. Instead, use the `simulate.py` to carry out the simulation and MM-G(P)BSA calculations. The `Simulation` class can be used to simulate protein-protein or protein-ligand complexes, and to calculate the MM-G(P)BSA scores from the simulation. It also contains plotting methods to analyze the results. `simulate.py` contains a sample code chunk to run a simulation, calculate scores and plot resulting data. The output directory will contain all the results in the end of the simulation. Currently, `calculate_mmgbsa` method only supports single trajectory method, but it will be updated to support multi-trajectory method as well. A few other modifications will also be done to improve calculations.
+
+# For Undergrad Students
 
 ## Logging into highgarden
 
@@ -52,6 +58,5 @@ sbatch -J md_sim -N 1 -n 4 --mem 16g -p volta-gpu -t 02:00:00 --qos gpu_access -
 
 ## Plans to Improve
 
-* Currently, MM-GBSA calculations are done by wrapping the command line call. Try to make it a python function that will take inputs (mmgbsa.in) as arguments.
 * Implement multi-trajectory support for MM-G(P)BSA calculations.
 * Add normal mode analysis to calculate entropic contribution.

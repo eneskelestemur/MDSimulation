@@ -4,7 +4,6 @@
 
 # libraries
 import os
-import sys
 import time
 import subprocess
 import matplotlib.pyplot as plt
@@ -18,16 +17,23 @@ from openmm import unit
 from openmmforcefields.generators import SystemGenerator
 from openff.toolkit.topology import Molecule
 from pdbfixer import PDBFixer
+from rdkit import Chem
 from MDAnalysis.analysis import rms, align, diffusionmap
+from MDAnalysis import transformations
 
 
 # Simulation class
 class Simulation():
     '''
         Simulation class for running MD simulations using OpenMM.
+
+        This class provides a simple interface for running MD simulations using OpenMM. The 
+        primary goal is to provide a simple interface to run complex biomolecular simulations,
+        but it can also be used for sinle protein or ligand simulations. Currently, single RNA
+        simulations are not supported.
     '''
-    def __init__(self, protein_files=None, ligand_files=None, platform='CUDA', 
-                 output_dir='MDSimulation', remove_tmp_files=False):
+    def __init__(self, protein_files=None, ligand_files=None, rna_files=None,
+                 platform='CUDA', output_dir='MDSimulation', remove_tmp_files=False):
         '''
             Initialize the simulation class.
 
@@ -37,6 +43,7 @@ class Simulation():
                     the protein files can be in any format that PDBFixer can handle.
                 ligand_files (list): the list of paths to the ligand files in sdf or mol2 format.
                     It will also work with pdb format, but it is not recommended.
+                rna_files (list): the list of paths to the RNA files in pdb format.
                 platform (str): the name of the platform to run the simulation on.
                 output_dir (str): the path to the output directory. This directory will contain the
                     final output files and the tmp directory that will contain the temporary files.
@@ -47,6 +54,7 @@ class Simulation():
         '''
         self.protein_files = protein_files if protein_files is not None else []
         self.ligand_files = ligand_files if ligand_files is not None else []
+        self.rna_files = rna_files if rna_files is not None else []
         self.platform = mm.Platform.getPlatformByName(platform)
         self.output_dir = output_dir
         self.remove_tmp_files = remove_tmp_files
@@ -69,6 +77,7 @@ class Simulation():
         # load the protein and ligand files
         self.proteins = [self._load_protein(protein_file) for protein_file in self.protein_files]
         self.ligands = [self._load_ligand(ligand_file) for ligand_file in self.ligand_files]
+        self.rnas = [self._load_rna(rna_file) for rna_file in self.rna_files]
         
     def add_protein(self, protein_file):
         '''
@@ -90,6 +99,16 @@ class Simulation():
         self.ligands.append(self._load_ligand(ligand_file))
         self.ligand_files.append(ligand_file)
 
+    def add_rna(self, rna_file):
+        '''
+            Add an RNA to the simulation.
+
+            Args:
+                rna_file (str): the path to the RNA file in pdb format.
+        '''
+        self.rnas.append(self._load_rna(rna_file))
+        self.rna_files.append(rna_file)
+
     def _load_protein(self, protein_file):
         '''
             Load the protein file and fix the missing residues, atoms, and nonstandard residues.
@@ -101,8 +120,16 @@ class Simulation():
         self.protein_counter = 0
         # load the protein file
         print('\nLoading the protein file...', flush=True)
+        print('If SEQRES is provided in the pdb file, it will be used to add the missing residues.', flush=True)
         protein = PDBFixer(protein_file)
         protein.findMissingResidues()
+        # update the missing resiudes to remove the terminal residues
+        keys = list(protein.missingResidues.keys())
+        chains = list(protein.topology.chains())
+        for key in keys:
+            chain = chains[key[0]]
+            if key[1] < 5 or key[1] > len(list(chain.residues()))-5:
+                del protein.missingResidues[key]
         protein.findMissingAtoms()
         protein.findNonstandardResidues()
         print('Missing residues:', protein.missingResidues, flush=True)
@@ -140,7 +167,11 @@ class Simulation():
         elif ligand_file.endswith('.mol2'):
             ligand = Molecule.from_file(ligand_file, file_format='mol2', allow_undefined_stereo=True)
         elif ligand_file.endswith('.pdb'):
-            ligand = Molecule.from_file(ligand_file, file_format='pdb', allow_undefined_stereo=True)
+            print('Loading ligand from pdb file is not safe. Positional information may be lost.', flush=True)
+            mol = Chem.MolFromPDBFile(ligand_file)
+            smi = Chem.MolToSmiles(mol)
+            ligand = Molecule.from_smiles(smi, allow_undefined_stereo=True)
+            ligand.generate_conformers(n_conformers=1)
         else:
             raise ValueError('Ligand file format not recognized. It should be sdf, mol2 or pdb.')
         if isinstance(ligand, list):
@@ -151,6 +182,41 @@ class Simulation():
         print('Ligand is loaded!\n', flush=True)
 
         return ligand
+    
+    def _load_rna(self, rna_file):
+        '''
+            Load the RNA file and fix the missing residues, atoms, and nonstandard residues.
+            Used during initialization.
+
+            Args:
+                rna_file (str): the path to the RNA file in pdb format.
+        '''
+        self.rna_counter = 0
+        # load the RNA file
+        print('\nLoading the RNA file...', flush=True)
+        print('If SEQRES is provided in the pdb file, it will be used to add the missing residues.', flush=True)
+        rna = PDBFixer(rna_file)
+        rna.findMissingResidues()
+        rna.findMissingAtoms()
+        rna.findNonstandardResidues()
+        print('Missing residues:', rna.missingResidues, flush=True)
+        print('Missing atoms:', rna.missingAtoms, flush=True)
+        print('Nonstandard residues:', rna.nonstandardResidues, flush=True)
+        rna.addMissingAtoms()
+        print('Missing atoms added!', flush=True)
+        rna.removeHeterogens(False)
+        print('Heterogens, including water, removed!', flush=True)
+        modeller = app.Modeller(rna.topology, rna.positions)
+        modeller.addHydrogens(forcefield=app.ForceField('amber14/RNA.OL3.xml'), pH=7.0, platform=self.platform)
+        print('Missing hydrogens added!', flush=True)
+        path = os.path.join(self.output_dir, 'tmp', f'_rna{self.rna_counter}.pdb')
+        app.PDBFile.writeFile(modeller.topology, modeller.positions, open(path, 'w'))
+        print('RNA is saved in tmp/_rna.pdb!', flush=True)
+        
+        rna = app.PDBFile(path)
+        self.rna_counter += 1
+        print('RNA is loaded!\n', flush=True)
+        return rna
     
     @staticmethod
     def pdb_from_mdcrd(topology, mdcrd, output, n_atom=None, hasbox=False):
@@ -204,7 +270,8 @@ class Simulation():
             self,
             proteins,
             forcefield,
-            ligands=None,
+            ligands,
+            rnas,
             solvate=True,
             solvation_kwargs={'model': 'tip3p', 
                               'padding': 1.0*unit.nanometer, 
@@ -219,9 +286,10 @@ class Simulation():
 
             Args:
                 proteins (list): the list of protein objects.
-                forcefield (str): the ForceField to use for determining van der Waals radii 
+                forcefield (ForceField): the ForceField to use for determining van der Waals radii 
                     and atomic charges by modeller.AddSolvent() method. Ignored if solvate=False.
                 ligands (list): the list of ligand objects.
+                rnas (list): the list of RNA objects.
                 solvate (bool): whether to solvate the system or not.
                 solvation_kwargs (dict): the keyword arguments for solvating the system.
                     refer to the documentation of openmm Modeller.addSolvent() for more information.
@@ -253,6 +321,8 @@ class Simulation():
         for ligand in ligands[1:]:
             ligand_topology = ligand.to_topology()
             modeller.add(ligand_topology.to_openmm(), ligand_topology.get_positions().to_openmm())
+        for rna in rnas:
+            modeller.add(rna.topology, rna.positions)
 
         path = os.path.join(self.output_dir, 'tmp', '_complex.pdb')
         app.PDBFile.writeFile(modeller.topology, modeller.positions, open(path, 'w'))
@@ -296,7 +366,7 @@ class Simulation():
         force.addPerParticleParameter('y0')
         force.addPerParticleParameter('z0')
         for coords, atom in zip(positions, atoms):
-            if atom.name in ['N', 'CA', 'C', 'O']:
+            if atom.name in ["N", "CA", "C", "O", "C3'", "C4'", "C5'", "P"]:
                 force.addParticle(int(atom.index), coords)
         system.addForce(force)
         
@@ -304,13 +374,14 @@ class Simulation():
             self,
             proteins,
             ligands=None,
+            rnas=None,
             integrator=mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds),
             additional_forces=[mm.MonteCarloBarostat(1.0*unit.atmosphere, 300*unit.kelvin)],
             forcefields=['amber14/protein.ff14SB.xml', 'amber14/tip3p.xml'],
             ligand_forcefield='gaff-2.11',
             solvate=True,
             solvent_kwargs={'model': 'tip3p', 'padding': 1.0*unit.nanometer, 'positiveIon': 'Na+',
-                            'negativeIon': 'Cl-', 'ionicStrength': 0.0*unit.molar, 'neutralize': True,},
+                            'negativeIon': 'Cl-', 'ionicStrength': 0.1*unit.molar, 'neutralize': True,},
             forcefield_kwargs={'constraints': None, 'rigidWater': False, 'removeCMMotion': False},
             nonperiodic_forcefield_kwargs={'nonbondedMethod' : app.NoCutoff},
             periodic_forcefield_kwargs={'nonbondedMethod' : app.PME},
@@ -324,6 +395,7 @@ class Simulation():
             args:
                 proteins (list): the list of protein objects.
                 ligands (list): the list of ligand objects.
+                rnas (list): the list of RNA objects.
                 integrator (openmm.Integrator): the integrator object.
                 additional_forces (list): the list of additional forces to add to the system.
                 forcefields (list): the list of forcefields to use for the protein and solvent.
@@ -341,30 +413,50 @@ class Simulation():
             returns:
                 simulation (openmm.Simulation): the simulation object.
         '''
-        # create system generator for simulation
-        system_generator = SystemGenerator(
-            forcefields=forcefields,
-            small_molecule_forcefield=ligand_forcefield,
-            molecules=ligands,
-            forcefield_kwargs=forcefield_kwargs,
-            nonperiodic_forcefield_kwargs=nonperiodic_forcefield_kwargs,
-            periodic_forcefield_kwargs=periodic_forcefield_kwargs,
-        )
+        if len(ligands) > 0:
+            # create system generator for simulation
+            system_generator = SystemGenerator(
+                forcefields=forcefields,
+                small_molecule_forcefield=ligand_forcefield,
+                molecules=ligands,
+                forcefield_kwargs=forcefield_kwargs,
+                nonperiodic_forcefield_kwargs=nonperiodic_forcefield_kwargs,
+                periodic_forcefield_kwargs=periodic_forcefield_kwargs,
+            )
 
-        # prepare the system and topology
-        modeller = self._prepare_system_topology(
-            proteins=proteins,
-            ligands=ligands,
-            forcefield=system_generator.forcefield,
-            solvate=solvate,
-            solvation_kwargs=solvent_kwargs,
-        )
+            # prepare the system and topology
+            modeller = self._prepare_system_topology(
+                proteins=proteins,
+                ligands=ligands,
+                rnas=rnas,
+                forcefield=system_generator.forcefield,
+                solvate=solvate,
+                solvation_kwargs=solvent_kwargs,
+            )
 
-        # create system
-        system = system_generator.create_system(modeller.topology, molecules=ligands)
-        integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1.0/unit.picosecond, 0.002*unit.picoseconds)
-        for force in additional_forces:
-            system.addForce(force)
+            # create system
+            system = system_generator.create_system(modeller.topology, molecules=ligands)
+            for force in additional_forces:
+                system.addForce(force)
+        else:
+            # prepare the system and topology
+            ff_system = app.ForceField(*forcefields)
+            modeller = self._prepare_system_topology(
+                proteins=proteins,
+                ligands=[],
+                rnas=rnas,
+                forcefield=ff_system,
+                solvate=solvate,
+                solvation_kwargs=solvent_kwargs,
+            )
+
+            # create system
+            if solvate:
+                system = ff_system.createSystem(modeller.topology, **forcefield_kwargs, **periodic_forcefield_kwargs)
+            else:
+                system = ff_system.createSystem(modeller.topology, **forcefield_kwargs, **nonperiodic_forcefield_kwargs)
+            for force in additional_forces:
+                system.addForce(force)
 
         # create simulation
         simulation = app.Simulation(modeller.topology, system, integrator, platform=self.platform)
@@ -410,7 +502,7 @@ class Simulation():
         path = os.path.join(self.output_dir, 'tmp', '_nvt_equilibrated.pdb')
         app.PDBFile.writeFile(simulation.topology, positions, open(path, 'w'))
     
-    def _equilibrate_npt(self, simulation: app.Simulation, num_steps: int=25000):
+    def _equilibrate_npt(self, simulation: app.Simulation, num_steps: int=250000):
         '''
             Equilibrate the system in the NPT ensemble for 50 ps.
 
@@ -458,10 +550,10 @@ class Simulation():
                 minimize (bool): whether to minimize the energy or not, before the simulation.
                 nvt_equilibration (bool): whether to run NVT equilibration or not.
                     Heats the system from 0 to 300 K over a period of 50 ps. 
-                npt_equilibration (bool): whether to run NPT equilibration or not.
-                    Equilibrates the system for 50 ps in the NPT ensemble.
-                    The protein is constrained during the equilibration by 
-                    the strength of 2 kcal/mol·Å2. 
+                npt_equilibration (bool or int): whether to run NPT equilibration or not.
+                    If int, it will run the NPT equilibration for the given number of steps.
+                    The default is 250000 steps. During the equilibration the protein is constrained  
+                    by the strength of 2 kcal/mol·Å2. 
                 sim_reporters (list): the list of reporters to use during the main simulation.
                     Default: [app.StateDataReporter('{output_dir}/sim_data.log', 1000, step=True, potentialEnergy=True, totalEnergy=True, temperature=True, density=True),
                               app.DCDReporter('{output_dir}/sim_trajectory.dcd', 1000), 
@@ -494,6 +586,7 @@ class Simulation():
         simulation = self._prepare_simulation(
             proteins=self.proteins,
             ligands=self.ligands,
+            rnas=self.rnas,
             integrator=integrator,
             additional_forces=additional_forces,
             forcefields=forcefields,
@@ -533,9 +626,10 @@ class Simulation():
 
         # npt equilibration
         if npt_equilibration:
+            npt_equilibration = 250000 if isinstance(npt_equilibration, bool) else npt_equilibration
             start_time = time.time()
             print('\nRunning NPT equilibration...', flush=True)
-            self._equilibrate_npt(simulation)
+            self._equilibrate_npt(simulation, npt_equilibration)
             print(f'NPT equilibration is finished in {time.time() - start_time} seconds and saved in _npt_equilibrated.pdb!\n', flush=True)
         
         if nvt_equilibration or npt_equilibration:
@@ -682,7 +776,7 @@ class Simulation():
         fig.tight_layout()
 
         if save:
-            fig.savefig(f'{data_file.split('.')[0]}.png')
+            fig.savefig(f'{data_file.split(".")[0]}.png')
 
         if show:
             fig.show()
@@ -722,6 +816,17 @@ class Simulation():
             rmsd_kwargs = {'select': 'backbone', 'groupselections': ['segid A', 'segid B', 'name CA']}
         # load the trajectory
         universe = mda.Universe(topology_file, traj_file, all_coordinates=True)
+        # apply transformations to move the trajectory to the center of mass
+        segids = [segid for segid in rmsd_kwargs['groupselections'] if 'segid' in segid]
+        complex_group = universe.select_atoms(' or '.join(segids))
+        print('Complex atoms', complex_group)
+        ag = universe.atoms
+        workflow = (transformations.unwrap(ag),
+                    transformations.center_in_box(complex_group, 'mass'),
+                    transformations.wrap(ag, compound='fragments'))
+        universe.trajectory.add_transformations(*workflow)
+
+        # calculate the RMSD
         rmsd = rms.RMSD(
             universe,
             universe,
@@ -769,16 +874,17 @@ class Simulation():
             Returns:
                 rmsf (numpy.ndarray): the RMSF array.
         '''
+        atom_names_for_alignment = "name CA or name C3' or name C4' or name C5' or name P"
         # load the trajectory
         universe = mda.Universe(topology_file, traj_file, all_coordinates=True)
 
         # align the trajectory to the first frame and calculate the average positions
-        average = align.AverageStructure(universe, universe, select=f'segid {segid} and name CA', in_memory=True).run()
+        average = align.AverageStructure(universe, universe, select=f'segid {segid} and {atom_names_for_alignment}', in_memory=True).run()
         ref = average.results.universe
-        aligner = align.AlignTraj(universe, ref, select=f'segid {segid} and name CA', in_memory=True).run()
+        aligner = align.AlignTraj(universe, ref, select=f'segid {segid} and {atom_names_for_alignment}', in_memory=True).run()
 
         # calculate the RMSF
-        c_alphas = universe.select_atoms(f'segid {segid} and name CA')
+        c_alphas = universe.select_atoms(f'segid {segid} and {atom_names_for_alignment}')
         rmsf = rms.RMSF(c_alphas).run()
 
         # plot the RMSF

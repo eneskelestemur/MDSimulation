@@ -3,6 +3,7 @@ tmp/
 ras_raf_example/tmp/
 estrogen_ral_example/tmp/
 bayesbind_struct/
+chikv*/
 
 ras_raf_example/*.log
 ras_raf_example/*.dcd
@@ -11,6 +12,8 @@ estrogen_ral_example/*.log
 estrogen_ral_example/*.dcd
 estrogen_ral_example/*.mdcrd
 
+scratch*
+actives.csv
 slurm-*.out
 _*
 *.prmtop

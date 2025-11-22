@@ -59,6 +59,11 @@ class Simulation():
         self.output_dir = output_dir
         self.remove_tmp_files = remove_tmp_files
 
+        # counters
+        self.protein_counter = 0
+        self.ligand_counter = 0
+        self.rna_counter = 0
+
         # keep track of simulation
         # check if the output directory contains the tmp directory
         if os.path.exists(f'{output_dir}/tmp'):
@@ -117,19 +122,18 @@ class Simulation():
             Args:
                 protein_file (str): the path to the protein file in pdb format.
         '''
-        self.protein_counter = 0
         # load the protein file
         print('\nLoading the protein file...', flush=True)
         print('If SEQRES is provided in the pdb file, it will be used to add the missing residues.', flush=True)
         protein = PDBFixer(protein_file)
         protein.findMissingResidues()
-        # update the missing resiudes to remove the terminal residues
-        keys = list(protein.missingResidues.keys())
-        chains = list(protein.topology.chains())
-        for key in keys:
-            chain = chains[key[0]]
-            if key[1] < 5 or key[1] > len(list(chain.residues()))-5:
-                del protein.missingResidues[key]
+        # # update the missing resiudes to remove the terminal residues
+        # keys = list(protein.missingResidues.keys())
+        # chains = list(protein.topology.chains())
+        # for key in keys:
+        #     chain = chains[key[0]]
+        #     if key[1] < 5 or key[1] > len(list(chain.residues()))-5:
+        #         del protein.missingResidues[key]
         protein.findMissingAtoms()
         protein.findNonstandardResidues()
         print('Missing residues:', protein.missingResidues, flush=True)
@@ -137,15 +141,16 @@ class Simulation():
         print('Nonstandard residues:', protein.nonstandardResidues, flush=True)
         protein.addMissingAtoms()
         print('Missing atoms added!', flush=True)
+        protein.addMissingHydrogens(7.0)
+        print('Missing hydrogens added!', flush=True)
         protein.removeHeterogens(False)
         print('Heterogens, including water, removed!', flush=True)
-        modeller = app.Modeller(protein.topology, protein.positions)
-        modeller.addHydrogens(forcefield=app.ForceField('amber/protein.ff14SB.xml'), pH=7.0, platform=self.platform)
-        print('Missing hydrogens added!', flush=True)
+        # modeller = app.Modeller(protein.topology, protein.positions)
+        # modeller.addHydrogens(forcefield=app.ForceField('amber/protein.ff14SB.xml'), pH=7.0, platform=self.platform)
         path = os.path.join(self.output_dir, 'tmp', f'_protein{self.protein_counter}.pdb')
-        app.PDBFile.writeFile(modeller.topology, modeller.positions, open(path, 'w'))
-        print('Protein is saved in tmp/_protein.pdb!', flush=True)
-        
+        app.PDBFile.writeFile(protein.topology, protein.positions, open(path, 'w'))
+        print(f'Protein is saved in tmp/_protein{self.protein_counter}.pdb!', flush=True)
+
         protein = app.PDBFile(path)
         self.protein_counter += 1
         print('Protein is loaded!\n', flush=True)
@@ -159,27 +164,24 @@ class Simulation():
             Args:
                 ligand_file (str): the path to the ligand file.
         '''
-        self.ligand_counter = 0
         # load the ligand file
         print('\nLoading the ligand file...', flush=True)
         if ligand_file.endswith('.sdf'):
             ligand = Molecule.from_file(ligand_file, file_format='sdf', allow_undefined_stereo=True)
         elif ligand_file.endswith('.mol2'):
-            ligand = Molecule.from_file(ligand_file, file_format='mol2', allow_undefined_stereo=True)
+            mol = Chem.MolFromMol2File(ligand_file, removeHs=False)
+            ligand = Molecule.from_rdkit(mol, allow_undefined_stereo=True)
         elif ligand_file.endswith('.pdb'):
             print('Loading ligand from pdb file is not safe. Positional information may be lost.', flush=True)
-            mol = Chem.MolFromPDBFile(ligand_file)
-            smi = Chem.MolToSmiles(mol)
-            ligand = Molecule.from_smiles(smi, allow_undefined_stereo=True)
-            ligand.generate_conformers(n_conformers=1)
+            mol = Chem.MolFromPDBFile(ligand_file, removeHs=False)
+            ligand = Molecule.from_rdkit(mol, allow_undefined_stereo=True)
         else:
             raise ValueError('Ligand file format not recognized. It should be sdf, mol2 or pdb.')
         if isinstance(ligand, list):
             raise ValueError('Ligand file should contain only one molecule.')
         path = os.path.join(self.output_dir, 'tmp', f'_ligand{self.ligand_counter}.sdf')
         ligand.to_file(path, file_format='sdf')
-        print('Ligand is saved in tmp/_ligand.sdf!', flush=True)
-        print('Ligand is loaded!\n', flush=True)
+        print(f'Ligand is saved in tmp/_ligand{self.ligand_counter}.sdf!', flush=True)
 
         return ligand
     
@@ -191,7 +193,6 @@ class Simulation():
             Args:
                 rna_file (str): the path to the RNA file in pdb format.
         '''
-        self.rna_counter = 0
         # load the RNA file
         print('\nLoading the RNA file...', flush=True)
         print('If SEQRES is provided in the pdb file, it will be used to add the missing residues.', flush=True)
@@ -204,14 +205,13 @@ class Simulation():
         print('Nonstandard residues:', rna.nonstandardResidues, flush=True)
         rna.addMissingAtoms()
         print('Missing atoms added!', flush=True)
+        rna.addMissingHydrogens(7.0)
+        print('Missing hydrogens added!', flush=True)
         rna.removeHeterogens(False)
         print('Heterogens, including water, removed!', flush=True)
-        modeller = app.Modeller(rna.topology, rna.positions)
-        modeller.addHydrogens(forcefield=app.ForceField('amber14/RNA.OL3.xml'), pH=7.0, platform=self.platform)
-        print('Missing hydrogens added!', flush=True)
         path = os.path.join(self.output_dir, 'tmp', f'_rna{self.rna_counter}.pdb')
-        app.PDBFile.writeFile(modeller.topology, modeller.positions, open(path, 'w'))
-        print('RNA is saved in tmp/_rna.pdb!', flush=True)
+        app.PDBFile.writeFile(rna.topology, rna.positions, open(path, 'w'))
+        print(f'RNA is saved in tmp/_rna{self.rna_counter}.pdb!', flush=True)
         
         rna = app.PDBFile(path)
         self.rna_counter += 1
@@ -816,15 +816,6 @@ class Simulation():
             rmsd_kwargs = {'select': 'backbone', 'groupselections': ['segid A', 'segid B', 'name CA']}
         # load the trajectory
         universe = mda.Universe(topology_file, traj_file, all_coordinates=True)
-        # apply transformations to move the trajectory to the center of mass
-        segids = [segid for segid in rmsd_kwargs['groupselections'] if 'segid' in segid]
-        complex_group = universe.select_atoms(' or '.join(segids))
-        print('Complex atoms', complex_group)
-        ag = universe.atoms
-        workflow = (transformations.unwrap(ag),
-                    transformations.center_in_box(complex_group, 'mass'),
-                    transformations.wrap(ag, compound='fragments'))
-        universe.trajectory.add_transformations(*workflow)
 
         # calculate the RMSD
         rmsd = rms.RMSD(

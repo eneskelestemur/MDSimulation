@@ -1,0 +1,96 @@
+# Run metadata and output root folder
+run_name: "estrogen_ral_ex"
+output_root: "outputs"  # relative or absolute path
+
+system:
+  name: "estrogen_raloxifene"
+  protein_paths:                        # list even if single file
+    - "Estrogen_Receptor.pdb"           # PDB
+  ligand_paths:                         # list even if single file
+    - "Raloxifene.sdf"                  # SDF/MOL2/PDB
+  rna_paths: []                         # list of PDBs (can be empty)
+  forcefields:                          # OpenMM FF XMLs, used for all components + solvation
+    - "amber19-all.xml"
+    - "amber19/tip3pfb.xml"
+
+prep:                                    # Structure cleaning
+  fix_missing_residues: true             # PDBFixer findMissingResidues
+  fix_missing_atoms: true                # PDBFixer find/add missing atoms
+  add_hydrogens_pH: 7.0                  # pH for protonation
+  remove_heterogens: true                # Strip heterogens (incl. waters) before modelling
+  ligand_allow_undefined_stereo: true    # Permit undefined stereochemistry in ligands
+
+solvation:                                # Modeller.addSolvent options
+  enabled: true
+  water_model: "tip3p"
+  padding_nm: 1.0                         # nm padding around solute
+  ionic_strength_m: 0.15                  # molar salt
+  positive_ion: "Na+"
+  negative_ion: "Cl-"
+  neutralize: true
+  solvent_kwargs: {}                      # extra kwargs passed to addSolvent
+
+simulation:
+  platform: "CUDA"                        # OpenMM platform
+  temperature: 300.0                      # K
+  friction: 1.0                           # 1/ps
+  timestep_fs: 2.0                        # fs
+
+  protocol:                                     # Phase controls
+    minimize:                                   # Energy minimization
+      enabled: true
+      max_iterations: 0                         # 0 → until convergence
+      tolerance_kj_per_mol_nm: 10.0             # force tolerance
+    nvt: { enabled: true, steps: 50000 }
+    npt: { enabled: true, steps: 50000 }
+    production_steps: 1000000
+    nvt_start_temp_k: 5.0                       # ramp start temperature
+    nvt_ramp_chunk_steps: 5                     # steps per temperature increment
+
+  integrator:
+    type: "LangevinMiddle"   # LangevinMiddle, Langevin, Verlet
+    seed: null               # RNG seed (int) or null
+
+  engine:
+    constraints: null                     # HBonds, AllBonds, HAngles, or null
+    rigid_water: true
+    remove_cm_motion: true
+    cutoff_nm: 1.0                        # nonbonded cutoff (nm)
+    switch_distance_nm: 0.9               # switching distance (nm) or null
+    ewald_error_tolerance: 0.0005         # PME tolerance
+    dispersion_correction: null           # true/false/null for default
+    hydrogen_mass: null                   # amu; set (e.g., 3.0) to enable HMR
+    barostat_interval: 25                 # steps between barostat moves
+    ligand_forcefield: "gaff-2.11"        # GAFF/SMIRNOFF/Espaloma string
+
+  reporting:
+    equilibration:
+      interval: 1000                      # steps between reports
+      state_file: "equil_state.log"
+      dcd_file: "equil_trajectory.dcd"
+      mdcrd_file: "equil.mdcrd"
+      mdcrd_enabled: false                # enable if you need AMBER-format output
+    production:
+      interval: 10000
+      state_file: "sim_state.log"
+      dcd_file: "sim_trajectory.dcd"
+      mdcrd_file: "sim.mdcrd"
+      mdcrd_enabled: false
+    checkpoint_interval: 10000            # steps between checkpoints (null to disable)
+    checkpoint_file: "sim_checkpoint.chk"
+
+output:
+  keep_tmp: false                         # keep tmp/ after run
+  keep_cache: false                       # keep cache/ (ligand templates)
+  final_pdb: "simulated_complex.pdb"
+  final_state_xml: "final_state.xml"
+  initial_state_xml: "initial_state.xml"
+  minimized_pdb: "minimized_complex.pdb"
+  config_copy: "config_resolved.yaml"
+  manifest: "manifest.json"
+
+# Optional analysis placeholders (not yet implemented in engine)
+analysis: {}
+# Optional MMGBSA placeholder; enable to force mdcrd outputs
+mmgbsa:
+  enabled: false

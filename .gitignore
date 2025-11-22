@@ -1,24 +1,75 @@
-# ignore data and packages
-tmp/
-ras_raf_example/tmp/
-estrogen_ral_example/tmp/
-bayesbind_struct/
-chikv*/
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-ras_raf_example/*.log
-ras_raf_example/*.dcd
-ras_raf_example/*.mdcrd
-estrogen_ral_example/*.log
-estrogen_ral_example/*.dcd
-estrogen_ral_example/*.mdcrd
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
 
-scratch*
-actives.csv
-slurm-*.out
-_*
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter notebooks
+.ipynb_checkpoints
+
+# MDSim output files
+*.dcd
+*.mdcrd
+*.log
+*.dat
+*.xml
 *.prmtop
 *.inpcrd
-*.mdcrd
-*.dcd
-*.log
 *.frc
+tmp/
+analysis/
+!mdsim/analysis/
+plots/
+
+# Example outputs
+examples/*/output/
+examples/*/tmp/
+examples/*/*.dcd
+examples/*/*.mdcrd
+examples/*/*.log
+
+# Slurm outputs
+slurm-*.out
+*.sbatch
+
+# Data directories (add specific ones you want to ignore)
+bayesbind_struct/
+chikv*/
+sarsCov2*/
+
+# Scratch files
+scratch*
+_*

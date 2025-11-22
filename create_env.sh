@@ -1,1 +1,0 @@
-mamba create -n mm -c omnia -c conda-forge openmm==8.0 parmed openff-toolkit openmmforcefields pdbfixer mdanalysis -y

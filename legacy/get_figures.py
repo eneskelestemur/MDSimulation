@@ -2,7 +2,7 @@
     Simulate protein-protein or protien-ligand complexes using simulation class.
 '''
 
-from simulation import Simulation
+from legacy.simulation import Simulation
 
 ## An example of simulating a protein-ligand complex using the Simulation class
 # set output directory

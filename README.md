@@ -1,62 +1,77 @@
-# MD Simulation of Biomolecular Complexes in OpenMM
+# MDSim: Modular MD runner on OpenMM
 
-Setting up Molecular Dynamic (MD) simulations of biomolecular complexes can be exhaustive with Amber or GROMACS. This repository aims to provide a simple automated MD simulation setup for biomolecular complexes using OpenMM. From given pdb file (for RNA, DNA or protein) and/or sdf (for small molecules), the `Simulation` class will create an OpenMM simulation object to run simulations. Thanks to [OpenMM](https://openmm.org/) and [openff](https://openforcefield.org/), fixing the input files, creating small molecule forcefield templates, forming the complex system and many more preparation steps are automated. See `simulate.py` for an example.
+Single-system MD workflow that builds/cleans structures, optionally solvates, and runs a configurable OpenMM protocol from a YAML file.
 
-## MMGBSA/MMPBSA Calculations
-
-Amber has utilities for running + analyzing MMGBSA simulations ([here](https://ambermd.org/tutorials/advanced/tutorial3/) is a tutorial), but they are annoying to use. Instead, use the `simulate.py` to carry out the simulation and MM-G(P)BSA calculations. The `Simulation` class can be used to simulate protein-protein or protein-ligand complexes, and to calculate the MM-G(P)BSA scores from the simulation. It also contains plotting methods to analyze the results. `simulate.py` contains a sample code chunk to run a simulation, calculate scores and plot resulting data. The output directory will contain all the results in the end of the simulation. Currently, `calculate_mmgbsa` method only supports single trajectory method, but it will be updated to support multi-trajectory method as well. A few other modifications will also be done to improve calculations.
-
-# For Undergrad Students
-
-## Logging into highgarden
-
-I've set up accounts for y'all on highgarden. You can access them via:
+## Quick start
 
 ```bash
-ssh {your_username}@152.2.40.219
+pip install -e .
+cp config_template.yaml my_run.yaml
+# edit my_run.yaml
+mdsim run my_run.yaml
 ```
 
-If that command doesn't work, it may be because you're off the UNC network. In that case, you'll need to connect to the UNC VPN, ssh into longleaf, and ssh into highgarden via the longleaf connection. This is super annoying and I'm not sure why this is.
+## Config highlights (single system)
 
-Once you're on, always cd to the shared `/tropsha` directory. Make sure to do **everything** in this folder! We have very little space on highgarden and `/tropsha` is the only folder pointing to an external hard drive. Putting even small files in your home directory (or anywhere else) could result in weird errors for you and everyone else using highgarden.
+```yaml
+run_name: "example"
+output_root: "outputs"
 
-I've already cloned this repo in `/tropsha/MDSimulation`; feel free to use that. Note that both of you are using this same repo which is generally not advised; you can create a separate copy for each of you if you want instead.
+system:
+  name: "complex"
+  protein_paths: ["inputs/protein.pdb"]
+  ligand_paths: ["inputs/ligand.sdf"]
+  rna_paths: []
+  forcefields: ["amber14-all.xml", "amber14/tip3pfb.xml"]
 
-## Using multiple GPUs in highgarden
+prep:
+  fix_missing_residues: true
+  fix_missing_atoms: true
+  add_hydrogens_pH: 7.0
 
-Highgarden has 4 GPUs. If you run most programs (including `md_sim.py`), it will by default only use one GPU (`0`). The simplest way to use another GPU is to modify the `CUDA_VISIBLE_DEVICES` environment variable. For instance, running
+solvation:
+  enabled: true
+  water_model: "tip3p"
+  padding_nm: 1.0
+  ionic_strength_m: 0.15
 
-```bash
-CUDA_VISIBLE_DEVICES=2 python md_sim.py
+simulation:
+  platform: "CUDA"
+  temperature: 300.0
+  friction: 1.0
+  timestep_fs: 2.0
+  protocol:
+    minimize: { enabled: true, steps: 5000 }
+    nvt:      { enabled: true, steps: 50000 }
+    npt:      { enabled: true, steps: 100000 }
+    production_steps: 1000000
+  integrator: { type: "LangevinMiddle", seed: null }
+  engine:
+    constraints: "HBonds"
+    cutoff_nm: 1.0
+    switch_distance_nm: 0.9
+    barostat_interval: 25
+    ligand_forcefield: "gaff-2.11"
+  reporting:
+    equilibration: { interval: 1000 }
+    production:    { interval: 1000 }
+    checkpoint_interval: 10000
+
+output:
+  keep_tmp: false
+  keep_cache: false
 ```
 
-will force it to use the third GPU (GPU `2`) by making that GPU the only one visible to the program. Running all the complexes in the set one one GPU will take too long, so make sure to use multiple! For instance, you could write a script to run MMGBSA on a single target in the benchmarking set, and then run the script three times simultaneously in three separate `tmux` sessions with different visible GPUs. Since there are 3 targets, this strategy will use 3 GPUs. I will leave it up to you to figure out how to use all 4, if you so desire.
+See `config_template.yaml`, `example_advanced.yaml`, and `estrogen_ral_ex/estrogen_ral.yaml` for full schemas and defaults.
 
-## Running the example code
+## Output layout
 
-On highgarden, I've set up a conda environment for y'all to use (`mm`). You should be able to run the example code with the following:
-
-```bash
-conda activate mm
-python simulate.py
 ```
-
-If you want to run it on longleaf, install mamba on your longleaf account, then run `sh create_env.sh` to create the environment. Once the environment is created, you can use the following to submit slurm jobs:
-
-```bash
-conda activate mm
-sbatch -J md_sim -N 1 -n 4 --mem 16g -p volta-gpu -t 02:00:00 --qos gpu_access --gres gpu:1 --wrap "python simulate.py"
+outputs/<run_name>/
+├── prep/                 # cleaned inputs, complex.pdb, complex_solvated.pdb
+├── sim/                  # logs, trajectories, state XML, final PDB
+├── cache/                # ligand template cache (removed if keep_cache: false)
+├── tmp/                  # scratch (removed if keep_tmp: false)
+├── config_resolved.yaml  # copy of input config
+└── manifest.json         # key output paths
 ```
-
-## Next steps
-
-1. Make sure you can simulate the example complex in this repo. This might take a while! Once this works, write a function to analyze the resulting `.dat` files and get the $\Delta G$ on the complex.
-2. Start by running this on just the `actives` for a target of your choice in the benchmarking set (I've posted the set in the slack). Plot the resulting delta Gs vs the experimental `pchembl_value` (-log Kd) of the active molecules. (You can find these `pchembl_values` in the `actives.csv` for the target). They should be negatively correlated! Check the correlation coefficient between the values.
-3. Now that you've done this for the actives, try it for the random compounds for the same target. Now plot the distribution of MMGBSA delta Gs for both the actives and random. The active delta Gs should be lower! (We don't have experimental binding affinities for the random compounds, but they will be unlikely to bind).
-4. Repeat for the other targets.
-5. Get the Expected Enrichment Factors for all the targets using EEF code that I will provide shortly...
-
-## Plans to Improve
-
-* Implement multi-trajectory support for MM-G(P)BSA calculations.
-* Add normal mode analysis to calculate entropic contribution.

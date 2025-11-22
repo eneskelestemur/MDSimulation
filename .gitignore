@@ -55,11 +55,8 @@ analysis/
 plots/
 
 # Example outputs
-examples/*/output/
-examples/*/tmp/
-examples/*/*.dcd
-examples/*/*.mdcrd
-examples/*/*.log
+examples/estrogen_ral/outputs/
+examples/ras_raf/outputs/
 
 # Slurm outputs
 slurm-*.out

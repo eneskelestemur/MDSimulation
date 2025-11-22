@@ -1,13 +1,13 @@
 # Run metadata and output root folder
-run_name: "estrogen_ral_example"
+run_name: "ras_raf_example"
 output_root: "outputs"  # relative or absolute path
 
 system:
-  name: "estrogen_raloxifene"
+  name: "ras_raf"
   protein_paths:                        # list even if single file
-    - "Estrogen_Receptor.pdb"           # PDB
-  ligand_paths:                         # list even if single file
-    - "Raloxifene.sdf"                  # SDF/MOL2/PDB
+    - "ras.pdb"                         # PDB
+    - "raf.pdb"                         
+  ligand_paths: []                      # list even if single file
   rna_paths: []                         # list of PDBs (can be empty)
   forcefields:                          # OpenMM FF XMLs, used for all components + solvation
     - "amber19-all.xml"

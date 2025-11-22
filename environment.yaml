@@ -340,7 +340,6 @@ dependencies:
   - pip:
       - amberutils==21.0
       - edgembar==0.2
-      - mdsim==0.1.0
       - mmpbsa-py==16.0
       - packmol-memgen==2024.2.9
       - pdb4amber==22.0

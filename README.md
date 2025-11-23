@@ -9,6 +9,17 @@ pip install -e .
 cp config_template.yaml my_run.yaml
 # edit my_run.yaml
 mdsim run my_run.yaml
+# after simulation, run analysis (e.g., MMGBSA) against the run directory
+mdsim analyze outputs/my_run
+
+# To tweak analysis after a run, edit outputs/<run_name>/config_resolved.yaml
+# (mmgbsa section) and rerun `mdsim analyze outputs/<run_name>`.
+# For MMGBSA masks/parameters (any pair: protein/protein, protein/ligand, ligand/ligand, RNA, etc.),
+# see the Amber MMGBSA tutorial for detailed guidance.
+
+# Selections
+- MDAnalysis atom selections are used for analysis (RMSD, RMSF, pairwise RMSD, contacts); see MDAnalysis docs for syntax.
+- Default reference for RMSD is the minimized complex (sim/minimized_complex.pdb); override via analysis.rmsd.reference/reference_path.
 ```
 
 ## Config highlights (single system)

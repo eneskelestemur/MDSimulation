@@ -81,7 +81,7 @@ simulation:
 
 output:
   keep_tmp: false                         # keep tmp/ after run
-  keep_cache: false                       # keep cache/ (ligand templates)
+  keep_cache: true                        # keep cache/ (ligand templates)
   final_pdb: "simulated_complex.pdb"
   final_state_xml: "final_state.xml"
   initial_state_xml: "initial_state.xml"
@@ -89,8 +89,5 @@ output:
   config_copy: "config_resolved.yaml"
   manifest: "manifest.json"
 
-# Optional analysis placeholders (not yet implemented in engine)
-analysis: {}
-# Optional MMGBSA placeholder; enable to force mdcrd outputs
 mmgbsa:
   enabled: false

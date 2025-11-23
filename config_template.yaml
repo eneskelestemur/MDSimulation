@@ -4,19 +4,20 @@
 run_name: "my_simulation"
 output_root: "outputs"   # relative or absolute path
 
+##### Simulation configuration #####
 system:
   name: "complex"
-  protein_paths:                        # list even if single file
+  protein_paths:                        # list even if single file; receptor can be any mask later
     - "path/to/protein.pdb"             # PDB
-  ligand_paths:                         # list even if single file
+  ligand_paths:                         # list even if single file; use mmgbsa masks to choose pairs
     - "path/to/ligand.sdf"              # SDF/MOL2/PDB
-  rna_paths: []                         # list of PDBs (can be empty)
+  rna_paths: []                         # list of PDBs (can be empty; can be part of MMGBSA masks)
   forcefields:                          # OpenMM FF XMLs, used for all components + solvation
     - "amber19-all.xml"
     - "amber19/tip3pfb.xml"
 
 prep:                                    # Structure cleaning
-  fix_missing_residues: true             # PDBFixer findMissingResidues
+  fix_missing_residues: true             # PDBFixer findMissingResidues (skip if you know sequences are complete)
   fix_missing_atoms: true                # PDBFixer find/add missing atoms
   add_hydrogens_pH: 7.0                  # pH for protonation
   remove_heterogens: true                # Strip heterogens (incl. waters) before modelling
@@ -24,7 +25,7 @@ prep:                                    # Structure cleaning
 
 solvation:                                # Modeller.addSolvent options
   enabled: true
-  water_model: "tip3p"
+  water_model: "tip3p"                   # water model string (must match a forcefield file)
   padding_nm: 1.0                         # nm padding around solute
   ionic_strength_m: 0.15                  # molar salt
   positive_ion: "Na+"
@@ -83,7 +84,7 @@ simulation:
 
 output:
   keep_tmp: false                         # keep tmp/ after run
-  keep_cache: false                       # keep cache/ (ligand templates)
+  keep_cache: true                        # keep cache/ (ligand templates) to speed later steps (e.g., MMGBSA)
   final_pdb: "simulated_complex.pdb"
   final_state_xml: "final_state.xml"
   initial_state_xml: "initial_state.xml"
@@ -91,8 +92,59 @@ output:
   config_copy: "config_resolved.yaml"
   manifest: "manifest.json"
 
-# Optional analysis placeholders (not yet implemented in engine)
-analysis: {}
-# Optional MMGBSA placeholder; enable to force mdcrd outputs
+##### MMG(P)BSA configuration #####
 mmgbsa:
   enabled: false
+  # Use Amber mask syntax to choose any pair (protein/protein, protein/ligand, ligand/ligand, RNA, etc.)
+  receptor_mask: null              # e.g., ":1-200" or ":PROA"
+  ligand_mask: null                # e.g., ":LIG" or ":201-250"
+  decomposition: null              # e.g., "residue"
+  keep_files: 2                    # Amber keep_files level (0-2), stored in tmp/
+  debug_printlevel: 1
+  strip_mask: ":WAT:HOH:CL:CIO:CS:IB:K:LI:MG:NA:RB"
+  startframe: 250                  # frame range/stride for analysis
+  endframe: 1500
+  interval: 25
+  gb_enabled: true                 # set false to skip GB and run PB-only
+  igb: 5
+  saltcon: 0.150
+  pb_enabled: false                # enable if you also want PB block
+  istrng: 0.100
+  radiopt: 0
+  inp: 1
+  # See Amber MMGBSA tutorial for detailed parameter meanings.
+
+##### Analysis configuration #####
+analysis:
+  rmsd:
+    enabled: false
+    name: "rmsd"
+    reference: "minimized"              # minimized | final | external
+    reference_path: null                # required if reference = external
+    align_selection: "backbone"         # MDAnalysis atom selection for alignment (optional)
+    target_selection: "backbone"        # selection to measure RMSD on
+    stride: 1
+    max_frames: null
+  rmsf:
+    enabled: false
+    name: "rmsf"
+    selection: "backbone"
+    stride: 1
+    max_frames: null
+  pairwise_rmsd:
+    enabled: false
+    name: "pairwise_rmsd"
+    selection1: "backbone"
+    selection2: null                    # if null, do self-pairwise
+    align_selection: "backbone"         # optional alignment selection
+    stride: 1
+    max_frames: null
+  contacts:
+    enabled: false
+    name: "contacts"
+    selection1: "protein"
+    selection2: "ligand"
+    cutoff_angstrom: 4.0
+    per_residue: true
+    stride: 1
+    max_frames: null

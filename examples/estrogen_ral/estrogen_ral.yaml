@@ -81,7 +81,7 @@ simulation:
 
 output:
   keep_tmp: false                         # keep tmp/ after run
-  keep_cache: false                       # keep cache/ (ligand templates)
+  keep_cache: true                        # keep cache/ (ligand templates)
   final_pdb: "simulated_complex.pdb"
   final_state_xml: "final_state.xml"
   initial_state_xml: "initial_state.xml"
@@ -89,8 +89,21 @@ output:
   config_copy: "config_resolved.yaml"
   manifest: "manifest.json"
 
-# Optional analysis placeholders (not yet implemented in engine)
-analysis: {}
-# Optional MMGBSA placeholder; enable to force mdcrd outputs
 mmgbsa:
   enabled: false
+  keep_files: 2
+  debug_printlevel: 1
+  strip_mask: ":WAT:HOH:CL:CIO:CS:IB:K:LI:MG:NA:RB"
+  startframe: 250
+  endframe: 1500
+  interval: 25
+  receptor_mask: null
+  ligand_mask: null
+  decomposition: null
+  gb_enabled: true
+  igb: 5
+  saltcon: 0.150
+  pb_enabled: false
+  istrng: 0.100
+  radiopt: 0
+  inp: 1

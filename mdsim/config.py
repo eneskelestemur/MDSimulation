@@ -129,7 +129,7 @@ class SimulationConfig:
 @dataclass
 class OutputConfig:
     keep_tmp: bool = False
-    keep_cache: bool = False
+    keep_cache: bool = True
     final_pdb: str = "simulated_complex.pdb"
     final_state_xml: str = "final_state.xml"
     initial_state_xml: str = "initial_state.xml"
@@ -148,34 +148,51 @@ class SystemSpec:
     forcefields: List[str] = field(default_factory=list)
 
 
-# --- Analysis-related config (unchanged, optional) ---------------------------
+# --- Analysis config --------------------------------------------------------
 
 
 @dataclass
 class RMSDConfig:
-    enabled: bool = True
-    reference: str = "last_frame"  # "initial", "last_frame", "external"
-    align_selection: str = "protein"  # free-form, to be interpreted later
+    enabled: bool = False
+    name: str = "rmsd"
+    reference: str = "minimized"  # minimized | final | external
     reference_path: Optional[Path] = None
+    align_selection: Optional[str] = "backbone"
+    target_selection: str = "backbone"
+    stride: int = 1
+    max_frames: Optional[int] = None
 
 
 @dataclass
 class RMSFConfig:
-    enabled: bool = True
-    selection: str = "protein"  # which atoms/residues
+    enabled: bool = False
+    name: str = "rmsf"
+    selection: str = "backbone"
+    stride: int = 1
+    max_frames: Optional[int] = None
 
 
 @dataclass
 class PairwiseRMSDConfig:
     enabled: bool = False
-    selection: str = "protein"
-    max_frames: Optional[int] = None  # subsample if large
+    name: str = "pairwise_rmsd"
+    selection1: str = "backbone"
+    selection2: Optional[str] = None  # if None, self-pairwise
+    align_selection: Optional[str] = "backbone"
+    stride: int = 1
+    max_frames: Optional[int] = None
 
 
 @dataclass
-class TimeseriesConfig:
-    enabled: bool = True
-    columns: List[str] = field(default_factory=list)  # if empty, choose sensible defaults
+class ContactsConfig:
+    enabled: bool = False
+    name: str = "contacts"
+    selection1: str = "protein"
+    selection2: str = "ligand"
+    cutoff_angstrom: float = 4.0
+    per_residue: bool = True
+    stride: int = 1
+    max_frames: Optional[int] = None
 
 
 @dataclass
@@ -183,7 +200,7 @@ class AnalysisConfig:
     rmsd: RMSDConfig = field(default_factory=RMSDConfig)
     rmsf: RMSFConfig = field(default_factory=RMSFConfig)
     pairwise_rmsd: PairwiseRMSDConfig = field(default_factory=PairwiseRMSDConfig)
-    timeseries: TimeseriesConfig = field(default_factory=TimeseriesConfig)
+    contacts: ContactsConfig = field(default_factory=ContactsConfig)
 
 
 # --- MMGBSA placeholder -----------------------------------------------------
@@ -192,6 +209,24 @@ class AnalysisConfig:
 @dataclass
 class MMGBSAConfig:
     enabled: bool = False
+    keep_files: int = 2
+    debug_printlevel: int = 1
+    strip_mask: str = ":WAT:HOH:CL:CIO:CS:IB:K:LI:MG:NA:RB"
+    startframe: int = 250
+    endframe: int = 1500
+    interval: int = 25
+    receptor_mask: Optional[str] = None
+    ligand_mask: Optional[str] = None
+    decomposition: Optional[str] = None  # e.g. "residue" or None
+
+    gb_enabled: bool = True
+    igb: int = 5
+    saltcon: float = 0.150
+
+    pb_enabled: bool = False
+    istrng: float = 0.100
+    radiopt: int = 0
+    inp: int = 1
 
 
 # --- Top-level run config ----------------------------------------------------
@@ -213,8 +248,8 @@ class RunConfig:
     solvation: SolvationConfig
     simulation: SimulationConfig
     output: OutputConfig
+    analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
 
-    analysis: Optional[AnalysisConfig] = None
     mmgbsa: Optional[MMGBSAConfig] = None
 
     @property
@@ -363,7 +398,7 @@ def _load_output_config(data: Mapping[str, Any] | None) -> OutputConfig:
     data = data or {}
     return OutputConfig(
         keep_tmp=bool(data.get("keep_tmp", False)),
-        keep_cache=bool(data.get("keep_cache", False)),
+        keep_cache=bool(data.get("keep_cache", True)),
         final_pdb=str(data.get("final_pdb", "simulated_complex.pdb")),
         final_state_xml=str(data.get("final_state_xml", "final_state.xml")),
         initial_state_xml=str(data.get("initial_state_xml", "initial_state.xml")),
@@ -404,58 +439,84 @@ def _load_system(raw: Mapping[str, Any], base_dir: Path) -> SystemSpec:
     )
 
 
-# Analysis loaders reused for compatibility
-def _load_rmsd_config(data: Mapping[str, Any] | None, base_dir: Path) -> RMSDConfig:
-    data = data or {}
-    ref_path = data.get("reference_path")
-    return RMSDConfig(
-        enabled=bool(data.get("enabled", True)),
-        reference=str(data.get("reference", "last_frame")),
-        align_selection=str(data.get("align_selection", "protein")),
-        reference_path=_coerce_path(ref_path, base_dir) if ref_path else None,
-    )
-
-
-def _load_rmsf_config(data: Mapping[str, Any] | None) -> RMSFConfig:
-    data = data or {}
-    return RMSFConfig(
-        enabled=bool(data.get("enabled", True)),
-        selection=str(data.get("selection", "protein")),
-    )
-
-
-def _load_pairwise_rmsd_config(data: Mapping[str, Any] | None) -> PairwiseRMSDConfig:
-    data = data or {}
-    max_frames = data.get("max_frames")
-    return PairwiseRMSDConfig(
-        enabled=bool(data.get("enabled", False)),
-        selection=str(data.get("selection", "protein")),
-        max_frames=int(max_frames) if max_frames is not None else None,
-    )
-
-
-def _load_timeseries_config(data: Mapping[str, Any] | None) -> TimeseriesConfig:
-    data = data or {}
-    return TimeseriesConfig(
-        enabled=bool(data.get("enabled", True)),
-        columns=list(data.get("columns", []) or []),
-    )
-
-
-def _load_analysis_config(data: Mapping[str, Any] | None, base_dir: Path) -> AnalysisConfig:
-    data = data or {}
-    return AnalysisConfig(
-        rmsd=_load_rmsd_config(data.get("rmsd"), base_dir),
-        rmsf=_load_rmsf_config(data.get("rmsf")),
-        pairwise_rmsd=_load_pairwise_rmsd_config(data.get("pairwise_rmsd")),
-        timeseries=_load_timeseries_config(data.get("timeseries")),
-    )
-
-
 def _load_mmgbsa_config(data: Mapping[str, Any] | None) -> MMGBSAConfig:
     data = data or {}
     return MMGBSAConfig(
         enabled=bool(data.get("enabled", False)),
+        keep_files=int(data.get("keep_files", 2)),
+        debug_printlevel=int(data.get("debug_printlevel", 1)),
+        strip_mask=str(data.get("strip_mask", ":WAT:HOH:CL:CIO:CS:IB:K:LI:MG:NA:RB")),
+        startframe=int(data.get("startframe", 250)),
+        endframe=int(data.get("endframe", 1500)),
+        interval=int(data.get("interval", 25)),
+        receptor_mask=data.get("receptor_mask"),
+        ligand_mask=data.get("ligand_mask"),
+        decomposition=data.get("decomposition"),
+        gb_enabled=bool(data.get("gb_enabled", True)),
+        igb=int(data.get("igb", 5)),
+        saltcon=float(data.get("saltcon", 0.150)),
+        pb_enabled=bool(data.get("pb_enabled", False)),
+        istrng=float(data.get("istrng", 0.100)),
+        radiopt=int(data.get("radiopt", 0)),
+        inp=int(data.get("inp", 1)),
+    )
+
+
+def _load_analysis_config(data: Mapping[str, Any] | None) -> AnalysisConfig:
+    data = data or {}
+    def _path(val: Optional[str]) -> Optional[Path]:
+        return Path(val) if val else None
+
+    rmsd_data = data.get("rmsd", {}) or {}
+    rmsf_data = data.get("rmsf", {}) or {}
+    pairwise_data = data.get("pairwise_rmsd", {}) or {}
+    contacts_data = data.get("contacts", {}) or {}
+
+    rmsd = RMSDConfig(
+        enabled=bool(rmsd_data.get("enabled", False)),
+        name=str(rmsd_data.get("name", "rmsd")),
+        reference=str(rmsd_data.get("reference", "minimized")),
+        reference_path=_path(rmsd_data.get("reference_path")),
+        align_selection=rmsd_data.get("align_selection", "backbone"),
+        target_selection=str(rmsd_data.get("target_selection", "backbone")),
+        stride=int(rmsd_data.get("stride", 1)),
+        max_frames=int(rmsd_data["max_frames"]) if rmsd_data.get("max_frames") is not None else None,
+    )
+
+    rmsf = RMSFConfig(
+        enabled=bool(rmsf_data.get("enabled", False)),
+        name=str(rmsf_data.get("name", "rmsf")),
+        selection=str(rmsf_data.get("selection", "backbone")),
+        stride=int(rmsf_data.get("stride", 1)),
+        max_frames=int(rmsf_data["max_frames"]) if rmsf_data.get("max_frames") is not None else None,
+    )
+
+    pairwise = PairwiseRMSDConfig(
+        enabled=bool(pairwise_data.get("enabled", False)),
+        name=str(pairwise_data.get("name", "pairwise_rmsd")),
+        selection1=str(pairwise_data.get("selection1", "backbone")),
+        selection2=pairwise_data.get("selection2"),
+        align_selection=pairwise_data.get("align_selection", "backbone"),
+        stride=int(pairwise_data.get("stride", 1)),
+        max_frames=int(pairwise_data["max_frames"]) if pairwise_data.get("max_frames") is not None else None,
+    )
+
+    contacts = ContactsConfig(
+        enabled=bool(contacts_data.get("enabled", False)),
+        name=str(contacts_data.get("name", "contacts")),
+        selection1=str(contacts_data.get("selection1", "protein")),
+        selection2=str(contacts_data.get("selection2", "ligand")),
+        cutoff_angstrom=float(contacts_data.get("cutoff_angstrom", 4.0)),
+        per_residue=bool(contacts_data.get("per_residue", True)),
+        stride=int(contacts_data.get("stride", 1)),
+        max_frames=int(contacts_data["max_frames"]) if contacts_data.get("max_frames") is not None else None,
+    )
+
+    return AnalysisConfig(
+        rmsd=rmsd,
+        rmsf=rmsf,
+        pairwise_rmsd=pairwise,
+        contacts=contacts,
     )
 
 
@@ -496,13 +557,11 @@ def load_run_config(path: Path | str) -> RunConfig:
     sim_cfg = _load_simulation_config(raw.get("simulation"))
     output_cfg = _load_output_config(raw.get("output"))
 
-    analysis_cfg = None
-    if "analysis" in raw:
-        analysis_cfg = _load_analysis_config(raw.get("analysis"), base_dir)
-
     mmgbsa_cfg = None
     if "mmgbsa" in raw:
         mmgbsa_cfg = _load_mmgbsa_config(raw.get("mmgbsa"))
+
+    analysis_cfg = _load_analysis_config(raw.get("analysis"))
 
     run_cfg = RunConfig(
         run_name=run_name,

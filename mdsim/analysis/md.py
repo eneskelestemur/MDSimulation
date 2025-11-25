@@ -90,11 +90,11 @@ def compute_rmsd(
     target_sel: str,
     stride: int,
     max_frames: Optional[int],
-    out_csv: Path,
+    out_csv: Optional[Path],
     label: str,
-) -> None:
+) -> pd.DataFrame:
     """
-    Compute RMSD against a reference for a target selection and write CSV.
+    Compute RMSD against a reference for a target selection and optionally write CSV.
 
     Args:
         mobile: Universe containing trajectory to analyze.
@@ -103,7 +103,7 @@ def compute_rmsd(
         target_sel: Selection string to compute RMSD on.
         stride: Subsample frames every N steps.
         max_frames: Cap number of frames (after stride); None for all.
-        out_csv: Output CSV path.
+        out_csv: Output CSV path (if None, results are not written).
         label: Label stored alongside results.
     """
     mob_atoms = _select_atoms_checked(mobile, target_sel)
@@ -127,8 +127,11 @@ def compute_rmsd(
             }
         )
 
-    pd.DataFrame(data).to_csv(out_csv, index=False)
-    logger.info("Wrote RMSD to %s", out_csv)
+    df = pd.DataFrame(data)
+    if out_csv is not None:
+        df.to_csv(out_csv, index=False)
+        logger.info("Wrote RMSD to %s", out_csv)
+    return df
 
 
 def compute_rmsf(
@@ -137,11 +140,11 @@ def compute_rmsf(
     target_sel: str,
     stride: int,
     max_frames: Optional[int],
-    out_csv: Path,
+    out_csv: Optional[Path],
     label: str,
-) -> None:
+) -> pd.DataFrame:
     """
-    Compute RMSF for a selection (optionally aligned each frame) and write CSV.
+    Compute RMSF for a selection (optionally aligned each frame) and optionally write CSV.
 
     Args:
         mobile: Universe containing trajectory to analyze.
@@ -149,7 +152,7 @@ def compute_rmsf(
         target_sel: Selection string to compute RMSF on.
         stride: Subsample frames every N steps.
         max_frames: Cap number of frames (after stride); None for all.
-        out_csv: Output CSV path.
+        out_csv: Output CSV path (if None, results are not written).
         label: Label stored alongside results.
     """
     atoms = _select_atoms_checked(mobile, target_sel)
@@ -165,16 +168,26 @@ def compute_rmsf(
     mean = coords.mean(axis=0)
     diffs = coords - mean
     rmsf = np.sqrt((diffs * diffs).sum(axis=2).mean(axis=0))
-    df = pd.DataFrame({"atom_index": np.arange(len(atoms)), "rmsf_angstrom": rmsf, "label": label})
-    df.to_csv(out_csv, index=False)
-    logger.info("Wrote RMSF to %s", out_csv)
+    df = pd.DataFrame(
+        {
+            "atom_index": np.arange(len(atoms)),
+            "rmsf_angstrom": rmsf,
+            "label": label,
+            "residue_index": atoms.resindices,
+            "residue_id": atoms.resnums,
+            "residue_name": atoms.resnames,
+        }
+    )
+    if out_csv is not None:
+        df.to_csv(out_csv, index=False)
+        logger.info("Wrote RMSF to %s", out_csv)
+    return df
 
 
 def compute_pairwise_rmsd(
     mobile: mda.Universe,
     reference: mda.Universe,
-    selection1: str,
-    selection2: Optional[str],
+    selection: str,
     align_sel: Optional[str],
     stride: int,
     max_frames: Optional[int],
@@ -184,48 +197,22 @@ def compute_pairwise_rmsd(
     """
     Compute pairwise RMSD and write CSV.
 
-    If selection2 is provided, outputs a time-series RMSD between selection1 and selection2.
-    If selection2 is None, outputs a symmetric RMSD matrix between frames for selection1.
+    Outputs a symmetric RMSD matrix between frames for the given selection.
     Time is reported in ns.
 
     Args:
         mobile: Universe containing trajectory to analyze.
         reference: Reference structure Universe (used for self alignment).
-        selection1: First selection string.
-        selection2: Second selection string (optional).
+        selection: Selection string used for all frames.
         align_sel: Selection string for alignment (optional).
         stride: Subsample frames every N steps.
         max_frames: Cap number of frames (after stride); None for all.
         out_csv: Output CSV path.
         label: Label stored alongside results.
     """
-    if selection2:
-        sel1 = _select_atoms_checked(mobile, selection1)
-        sel2 = _select_atoms_checked(mobile, selection2)
-        if len(sel1) != len(sel2):
-            raise ValueError("Pairwise RMSD selections must have same atom count.")
-        frame_indices = _frame_indices(mobile.trajectory.n_frames, stride, max_frames)
-        data = []
-        for i in frame_indices:
-            mobile.trajectory[i]
-            _align(mobile, mobile, align_sel, self_align=True)
-            diff = sel1.positions - sel2.positions
-            rmsd_val = np.sqrt((diff * diff).sum() / len(sel1))
-            data.append(
-                {
-                    "frame": i,
-                    "time_ns": mobile.trajectory.time / 1000.0,
-                    "rmsd_angstrom": rmsd_val,
-                    "label": label,
-                }
-            )
-        pd.DataFrame(data).to_csv(out_csv, index=False)
-        logger.info("Wrote pairwise RMSD (selection1 vs selection2) to %s", out_csv)
-        return
-
     # Self RMSD matrix across frames
-    sel = _select_atoms_checked(mobile, selection1)
-    ref_sel = _select_atoms_checked(reference, selection1)
+    sel = _select_atoms_checked(mobile, selection)
+    ref_sel = _select_atoms_checked(reference, selection)
     if len(sel) != len(ref_sel):
         raise ValueError("Pairwise RMSD self requires same atom count in reference.")
     frame_indices = _frame_indices(mobile.trajectory.n_frames, stride, max_frames)

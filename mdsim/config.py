@@ -158,6 +158,15 @@ class RMSDConfig:
     reference: str = "minimized"  # minimized | final | external
     reference_path: Optional[Path] = None
     align_selection: Optional[str] = "backbone"
+    target_selection: str = "backbone"  # default if selections omit
+    stride: int = 1
+    max_frames: Optional[int] = None
+    selections: list["RMSDSelectionConfig"] = field(default_factory=list)
+
+
+@dataclass
+class RMSDSelectionConfig:
+    name: str
     target_selection: str = "backbone"
     stride: int = 1
     max_frames: Optional[int] = None
@@ -167,7 +176,16 @@ class RMSDConfig:
 class RMSFConfig:
     enabled: bool = False
     name: str = "rmsf"
-    selection: str = "backbone"
+    align_selection: Optional[str] = None  # shared align selection for all RMSF calculations
+    stride: int = 1  # default stride if a selection does not override
+    max_frames: Optional[int] = None  # default max_frames if a selection does not override
+    selections: list["RMSFSelectionConfig"] = field(default_factory=list)
+
+
+@dataclass
+class RMSFSelectionConfig:
+    name: str
+    target_selection: str = "backbone"
     stride: int = 1
     max_frames: Optional[int] = None
 
@@ -176,8 +194,7 @@ class RMSFConfig:
 class PairwiseRMSDConfig:
     enabled: bool = False
     name: str = "pairwise_rmsd"
-    selection1: str = "backbone"
-    selection2: Optional[str] = None  # if None, self-pairwise
+    selection: str = "backbone"
     align_selection: Optional[str] = "backbone"
     stride: int = 1
     max_frames: Optional[int] = None
@@ -196,11 +213,46 @@ class ContactsConfig:
 
 
 @dataclass
+class TransformationsConfig:
+    enabled: bool = False
+    unwrap_selection: Optional[str] = "all"
+    center_selection: Optional[str] = "protein"
+    save_format: str = "dcd"  # dcd | xtc | trr | nc | mdcrd | trj | xyz
+    save_interval: int = 1
+    save_filename: Optional[str] = None
+
+
+@dataclass
 class AnalysisConfig:
+    transformations: TransformationsConfig = field(default_factory=TransformationsConfig)
     rmsd: RMSDConfig = field(default_factory=RMSDConfig)
     rmsf: RMSFConfig = field(default_factory=RMSFConfig)
     pairwise_rmsd: PairwiseRMSDConfig = field(default_factory=PairwiseRMSDConfig)
     contacts: ContactsConfig = field(default_factory=ContactsConfig)
+
+
+@dataclass
+class VisualizationRMSFConfig:
+    aggregate_by_residue: bool = False  # default plotting aggregation for all selections
+    selections: list["VisualizationRMSFSelectionConfig"] = field(default_factory=list)
+
+
+@dataclass
+class VisualizationRMSFSelectionConfig:
+    name: str
+    aggregate_by_residue: bool = False
+
+
+@dataclass
+class VisualizationPairwiseRMSDConfig:
+    max_tick_labels: int = 30
+
+
+@dataclass
+class VisualizationConfig:
+    figure_dpi: int = 300
+    rmsf: VisualizationRMSFConfig = field(default_factory=VisualizationRMSFConfig)
+    pairwise_rmsd: VisualizationPairwiseRMSDConfig = field(default_factory=VisualizationPairwiseRMSDConfig)
 
 
 # --- MMGBSA placeholder -----------------------------------------------------
@@ -249,6 +301,7 @@ class RunConfig:
     simulation: SimulationConfig
     output: OutputConfig
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
+    visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
 
     mmgbsa: Optional[MMGBSAConfig] = None
 
@@ -467,10 +520,42 @@ def _load_analysis_config(data: Mapping[str, Any] | None) -> AnalysisConfig:
     def _path(val: Optional[str]) -> Optional[Path]:
         return Path(val) if val else None
 
+    trans_data = data.get("transformations", {}) or {}
     rmsd_data = data.get("rmsd", {}) or {}
     rmsf_data = data.get("rmsf", {}) or {}
     pairwise_data = data.get("pairwise_rmsd", {}) or {}
     contacts_data = data.get("contacts", {}) or {}
+
+    rmsd_selections_raw = rmsd_data.get("selections") or []
+
+    def _max_frames_from(val):
+        return int(val) if val is not None else None
+
+    default_target = str(rmsd_data.get("target_selection", "backbone"))
+    default_stride = int(rmsd_data.get("stride", 1))
+    default_max_frames = _max_frames_from(rmsd_data.get("max_frames"))
+
+    rmsd_selections: list[RMSDSelectionConfig] = []
+    if rmsd_selections_raw:
+        for idx, sel in enumerate(rmsd_selections_raw):
+            target_sel = str(sel.get("target_selection", default_target))
+            rmsd_selections.append(
+                RMSDSelectionConfig(
+                    name=str(sel.get("name", target_sel or f"rmsd_{idx+1}")),
+                    target_selection=target_sel,
+                    stride=int(sel.get("stride", default_stride)),
+                    max_frames=_max_frames_from(sel.get("max_frames", rmsd_data.get("max_frames"))),
+                )
+            )
+    else:
+        rmsd_selections.append(
+            RMSDSelectionConfig(
+                name=str(rmsd_data.get("name", "rmsd")),
+                target_selection=default_target,
+                stride=default_stride,
+                max_frames=default_max_frames,
+            )
+        )
 
     rmsd = RMSDConfig(
         enabled=bool(rmsd_data.get("enabled", False)),
@@ -478,24 +563,65 @@ def _load_analysis_config(data: Mapping[str, Any] | None) -> AnalysisConfig:
         reference=str(rmsd_data.get("reference", "minimized")),
         reference_path=_path(rmsd_data.get("reference_path")),
         align_selection=rmsd_data.get("align_selection", "backbone"),
-        target_selection=str(rmsd_data.get("target_selection", "backbone")),
-        stride=int(rmsd_data.get("stride", 1)),
-        max_frames=int(rmsd_data["max_frames"]) if rmsd_data.get("max_frames") is not None else None,
+        target_selection=default_target,
+        stride=default_stride,
+        max_frames=default_max_frames,
+        selections=rmsd_selections,
     )
+
+    rmsf_selections_raw = rmsf_data.get("selections") or []
+    def _rmsf_max_frames(val):
+        return int(val) if val is not None else None
+    default_rmsf_target = str(rmsf_data.get("target_selection", "backbone"))
+    default_rmsf_align = rmsf_data.get("align_selection")
+    default_rmsf_stride = int(rmsf_data.get("stride", 1))
+    default_rmsf_max_frames = _rmsf_max_frames(rmsf_data.get("max_frames"))
+
+    rmsf_selections: list[RMSFSelectionConfig] = []
+    if rmsf_selections_raw:
+        for idx, sel in enumerate(rmsf_selections_raw):
+            tgt = str(sel.get("target_selection", default_rmsf_target))
+            rmsf_selections.append(
+                RMSFSelectionConfig(
+                    name=str(sel.get("name", tgt or f"rmsf_{idx+1}")),
+                    target_selection=tgt,
+                    stride=int(sel.get("stride", default_rmsf_stride)),
+                    max_frames=_rmsf_max_frames(sel.get("max_frames", rmsf_data.get("max_frames"))),
+                )
+            )
+    else:
+        rmsf_selections.append(
+            RMSFSelectionConfig(
+                name=str(rmsf_data.get("name", "rmsf")),
+                target_selection=default_rmsf_target,
+                stride=default_rmsf_stride,
+                max_frames=default_rmsf_max_frames,
+            )
+        )
 
     rmsf = RMSFConfig(
         enabled=bool(rmsf_data.get("enabled", False)),
         name=str(rmsf_data.get("name", "rmsf")),
-        selection=str(rmsf_data.get("selection", "backbone")),
-        stride=int(rmsf_data.get("stride", 1)),
-        max_frames=int(rmsf_data["max_frames"]) if rmsf_data.get("max_frames") is not None else None,
+        align_selection=default_rmsf_align,
+        stride=default_rmsf_stride,
+        max_frames=default_rmsf_max_frames,
+        selections=rmsf_selections,
+    )
+
+    align_ref_raw = trans_data.get("align_reference", "minimized")
+    transformations = TransformationsConfig(
+        enabled=bool(trans_data.get("enabled", False)),
+        unwrap_selection=trans_data.get("unwrap_selection"),
+        center_selection=trans_data.get("center_selection"),
+        save_format=str(trans_data.get("save_format", "dcd")),
+        save_interval=int(trans_data.get("save_interval", 1)),
+        save_filename=trans_data.get("save_filename"),
     )
 
     pairwise = PairwiseRMSDConfig(
         enabled=bool(pairwise_data.get("enabled", False)),
         name=str(pairwise_data.get("name", "pairwise_rmsd")),
-        selection1=str(pairwise_data.get("selection1", "backbone")),
-        selection2=pairwise_data.get("selection2"),
+        selection=str(pairwise_data.get("selection", pairwise_data.get("selection1", "backbone"))),
         align_selection=pairwise_data.get("align_selection", "backbone"),
         stride=int(pairwise_data.get("stride", 1)),
         max_frames=int(pairwise_data["max_frames"]) if pairwise_data.get("max_frames") is not None else None,
@@ -513,10 +639,40 @@ def _load_analysis_config(data: Mapping[str, Any] | None) -> AnalysisConfig:
     )
 
     return AnalysisConfig(
+        transformations=transformations,
         rmsd=rmsd,
         rmsf=rmsf,
         pairwise_rmsd=pairwise,
         contacts=contacts,
+    )
+
+
+def _load_visualization_config(data: Mapping[str, Any] | None) -> VisualizationConfig:
+    data = data or {}
+    rmsf_data = data.get("rmsf", {}) or {}
+    pairwise_data = data.get("pairwise_rmsd", {}) or {}
+
+    rmsf_selections_raw = rmsf_data.get("selections") or []
+    rmsf_selections = [
+        VisualizationRMSFSelectionConfig(
+            name=str(sel.get("name")),
+            aggregate_by_residue=bool(sel.get("aggregate_by_residue", False)),
+        )
+        for sel in rmsf_selections_raw
+        if sel.get("name") is not None
+    ]
+    rmsf = VisualizationRMSFConfig(
+        aggregate_by_residue=bool(rmsf_data.get("aggregate_by_residue", False)),
+        selections=rmsf_selections,
+    )
+    pairwise = VisualizationPairwiseRMSDConfig(
+        max_tick_labels=max(1, int(pairwise_data.get("max_tick_labels", 30))),
+    )
+
+    return VisualizationConfig(
+        figure_dpi=int(data.get("figure_dpi", 300)),
+        rmsf=rmsf,
+        pairwise_rmsd=pairwise,
     )
 
 
@@ -562,6 +718,7 @@ def load_run_config(path: Path | str) -> RunConfig:
         mmgbsa_cfg = _load_mmgbsa_config(raw.get("mmgbsa"))
 
     analysis_cfg = _load_analysis_config(raw.get("analysis"))
+    visualization_cfg = _load_visualization_config(raw.get("visualization"))
 
     run_cfg = RunConfig(
         run_name=run_name,
@@ -572,6 +729,7 @@ def load_run_config(path: Path | str) -> RunConfig:
         simulation=sim_cfg,
         output=output_cfg,
         analysis=analysis_cfg,
+        visualization=visualization_cfg,
         mmgbsa=mmgbsa_cfg,
     )
 

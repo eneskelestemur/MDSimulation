@@ -116,27 +116,46 @@ mmgbsa:
 
 ##### Analysis configuration #####
 analysis:
+  transformations:                      # applied once to trajectory before analyses
+    enabled: false
+    unwrap_selection: "all"             # selection to unwrap across PBC (null to skip)
+    center_selection: "protein"         # selection to center and wrap in box (null to skip)
+    save_format: "dcd"                  # dcd | xtc | trr | nc | mdcrd | trj | xyz
+    save_interval: 1                    # stride for saving transformed frames
+    save_filename: null                 # override output filename (defaults to sim_trajectory_transformed.<ext>)
   rmsd:
     enabled: false
-    name: "rmsd"
-    reference: "minimized"              # minimized | final | external
-    reference_path: null                # required if reference = external
-    align_selection: "backbone"         # MDAnalysis atom selection for alignment (optional)
-    target_selection: "backbone"        # selection to measure RMSD on
-    stride: 1
-    max_frames: null
+    name: "rmsd"                        # output CSV filename (single file with multiple labels)
+    reference: "minimized"              # minimized | final | external (applied to all selections)
+    reference_path: null                # required if reference: external
+    align_selection: "backbone"         # alignment selection applied to all selections
+    stride: 1                           # default stride for all selections
+    max_frames: null                    # default max_frames for all selections
+    selections:
+      - name: "backbone"                # label used in CSV/plot
+        target_selection: "backbone"    # MDAnalysis selection to measure RMSD on
+        stride: 1
+        max_frames: null
+      - name: "ligand"
+        target_selection: "resname LIG"
+        stride: 1
+        max_frames: null
   rmsf:
     enabled: false
     name: "rmsf"
-    selection: "backbone"
-    stride: 1
-    max_frames: null
+    align_selection: "backbone"           # shared alignment selection for all RMSF calculations
+    stride: 1                             # default stride for selections
+    max_frames: null                      # default max_frames for selections
+    selections:
+      - name: "backbone"
+        target_selection: "backbone"
+        stride: 1
+        max_frames: null
   pairwise_rmsd:
     enabled: false
     name: "pairwise_rmsd"
-    selection1: "backbone"
-    selection2: null                    # if null, do self-pairwise
-    align_selection: "backbone"         # optional alignment selection
+    selection: "backbone"               # selection used for frame-vs-frame matrix
+    align_selection: "backbone"         # optional alignment selection (applied before RMSD)
     stride: 1
     max_frames: null
   contacts:
@@ -148,3 +167,14 @@ analysis:
     per_residue: true
     stride: 1
     max_frames: null
+
+##### Visualization configuration #####
+visualization:
+  figure_dpi: 300                        # default DPI for saved figures
+  rmsf:
+    aggregate_by_residue: false           # default aggregation for all selections (overridden per selection below)
+    selections:
+      - name: "backbone"
+        aggregate_by_residue: false       # per-selection aggregation override
+  pairwise_rmsd:
+    max_tick_labels: 30                   # max tick labels on each axis for pairwise RMSD heatmap

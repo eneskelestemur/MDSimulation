@@ -1,88 +1,63 @@
-# MDSim: Modular MD runner on OpenMM
+# MDSim on OpenMM
 
-Single-system MD workflow that builds/cleans structures, optionally solvates, and runs a configurable OpenMM protocol from a YAML file.
+Config-driven MD runner: prepare structures, solvate, run OpenMM, then analyze and visualize with MDAnalysis.
 
-## Quick start
-
+## Install
 ```bash
 pip install -e .
-cp config_template.yaml my_run.yaml
-# edit my_run.yaml
-mdsim run my_run.yaml
-# after simulation, run analysis (e.g., MMGBSA) against the run directory
-mdsim analyze outputs/my_run
-
-# To tweak analysis after a run, edit outputs/<run_name>/config_resolved.yaml
-# (mmgbsa section) and rerun `mdsim analyze outputs/<run_name>`.
-# For MMGBSA masks/parameters (any pair: protein/protein, protein/ligand, ligand/ligand, RNA, etc.),
-# see the Amber MMGBSA tutorial for detailed guidance.
-
-# Selections
-- MDAnalysis atom selections are used for analysis (RMSD, RMSF, pairwise RMSD, contacts); see MDAnalysis docs for syntax.
-- Default reference for RMSD is the minimized complex (sim/minimized_complex.pdb); override via analysis.rmsd.reference/reference_path.
 ```
 
-## Config highlights (single system)
-
-```yaml
-run_name: "example"
-output_root: "outputs"
-
-system:
-  name: "complex"
-  protein_paths: ["inputs/protein.pdb"]
-  ligand_paths: ["inputs/ligand.sdf"]
-  rna_paths: []
-  forcefields: ["amber14-all.xml", "amber14/tip3pfb.xml"]
-
-prep:
-  fix_missing_residues: true
-  fix_missing_atoms: true
-  add_hydrogens_pH: 7.0
-
-solvation:
-  enabled: true
-  water_model: "tip3p"
-  padding_nm: 1.0
-  ionic_strength_m: 0.15
-
-simulation:
-  platform: "CUDA"
-  temperature: 300.0
-  friction: 1.0
-  timestep_fs: 2.0
-  protocol:
-    minimize: { enabled: true, steps: 5000 }
-    nvt:      { enabled: true, steps: 50000 }
-    npt:      { enabled: true, steps: 100000 }
-    production_steps: 1000000
-  integrator: { type: "LangevinMiddle", seed: null }
-  engine:
-    constraints: "HBonds"
-    cutoff_nm: 1.0
-    switch_distance_nm: 0.9
-    barostat_interval: 25
-    ligand_forcefield: "gaff-2.11"
-  reporting:
-    equilibration: { interval: 1000 }
-    production:    { interval: 1000 }
-    checkpoint_interval: 10000
-
-output:
-  keep_tmp: false
-  keep_cache: false
+## Run at the CLI
+```bash
+cp config_template.yaml my_run.yaml   # edit this file
+mdsim run my_run.yaml                 # prep + simulation
+mdsim analyze outputs/<run_name>      # analyses (RMSD/RMSF/pairwise/contacts/MMGBSA)
+mdsim visualize outputs/<run_name>    # plots from analysis outputs
 ```
+`mdsim analyze`/`visualize` read `outputs/<run_name>/config_resolved.yaml`.
 
-See `config_template.yaml`, `example_advanced.yaml`, and `estrogen_ral_ex/estrogen_ral.yaml` for full schemas and defaults.
+## What the config controls
+- **system**: input structures (protein/ligand/RNA), forcefields.
+- **prep**: fix missing residues/atoms, protonate, strip heterogens.
+- **solvation**: box padding, ions, water model.
+- **simulation**: integrator/constraints/cutoffs, protocol (minimize/NVT/NPT/production), reporting/checkpoints.
+- **analysis**: transformations (unwrap/center/wrap once, save transformed traj), RMSD/RMSF (multi-selection), pairwise RMSD, contacts, MMGBSA.
+- **visualization**: figure DPI, RMSF aggregation per selection, pairwise heatmap tick density.
+- Full schema: `config_template.yaml`.
 
-## Output layout
-
+## Outputs
 ```
 outputs/<run_name>/
-├── prep/                 # cleaned inputs, complex.pdb, complex_solvated.pdb
-├── sim/                  # logs, trajectories, state XML, final PDB
-├── cache/                # ligand template cache (removed if keep_cache: false)
-├── tmp/                  # scratch (removed if keep_tmp: false)
-├── config_resolved.yaml  # copy of input config
-└── manifest.json         # key output paths
+├── prep/                  # cleaned/solvated structures
+├── sim/                   # trajectories, logs, states, final PDB
+│   ├── sim_trajectory.dcd
+│   ├── sim_trajectory_transformed.<ext>   # when transforms enabled
+│   ├── sim_state.log, minimized_complex.pdb, final_state.xml, ...
+├── analysis/              # CSVs: rmsd, rmsf, pairwise_rmsd, contacts, mmgbsa
+├── visuals/               # PNG plots: state, rmsd, rmsf, pairwise_rmsd, contacts
+├── cache/, tmp/           # optional caches/scratch
+├── config_resolved.yaml   # resolved config used for the run
+└── manifest.json          # key output paths
 ```
+
+## Python API
+```python
+from pathlib import Path
+from mdsim.config import load_run_config
+from mdsim.workflow import MDWorkflow
+from mdsim.analysis.workflow import AnalysisWorkflow
+
+cfg = load_run_config(Path("my_run.yaml"))
+wf = MDWorkflow(cfg, config_path=Path("my_run.yaml"))
+result = wf.run()                 # prep + simulation
+
+awf = AnalysisWorkflow(result.run_dir)
+awf.run()                         # analyses (uses config_resolved.yaml)
+```
+
+## Notes
+- Transformations: if enabled, we unwrap/center/wrap once, write `sim_trajectory_transformed.<ext>`, reload, and run all analyses on the transformed coords (no per-analysis transform overhead).
+- Analyses use MDAnalysis selections (e.g., `backbone`, `resname UNK`, `protein and name CA`).
+- RMSD/RMSF support multiple selections in one CSV/plot.
+
+For selection syntax see MDAnalysis docs; for MMGBSA masks/parameters see Amber MMGBSA guidance.

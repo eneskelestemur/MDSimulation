@@ -103,39 +103,87 @@ def _visualize_command(run_dir: Path) -> int:
     Generate plots for a completed run (state data).
     """
     from ..visualize import plot_state_data, plot_rmsd, plot_rmsf, plot_pairwise_rmsd, plot_contacts
+    from ..config import load_run_config, VisualizationConfig, RunConfig
 
     run_dir = run_dir.expanduser().resolve()
     visuals_dir = run_dir / "visuals"
     visuals_dir.mkdir(parents=True, exist_ok=True)
 
+    viz_cfg: VisualizationConfig | None = None
+    run_cfg: RunConfig | None = None
+    cfg_path = run_dir / "config_resolved.yaml"
+    if cfg_path.exists():
+        try:
+            run_cfg = load_run_config(cfg_path)
+            viz_cfg = run_cfg.visualization
+        except Exception as exc:  # pragma: no cover - defensive, CLI-facing
+            print(f"[mdsim] Warning: failed to load visualization config from {cfg_path}: {exc}")
+    else:
+        print(f"[mdsim] Warning: config_resolved.yaml not found in {run_dir}; using visualization defaults.")
+
+    rmsd_name = run_cfg.analysis.rmsd.name if run_cfg else "rmsd"
+    rmsf_name = run_cfg.analysis.rmsf.name if run_cfg else "rmsf"
+    pairwise_name = run_cfg.analysis.pairwise_rmsd.name if run_cfg else "pairwise_rmsd"
+    contacts_name = run_cfg.analysis.contacts.name if run_cfg else "contacts"
+
     equil_log = run_dir / "sim" / "equil_state.log"
     prod_log = run_dir / "sim" / "sim_state.log"
     if equil_log.exists():
-        plot_state_data(equil_log, visuals_dir / "equil_state.png", title="Equilibration")
+        plot_state_data(equil_log, visuals_dir / "equil_state.png", title="Equilibration", dpi=viz_cfg.figure_dpi if viz_cfg else 300)
     else:
         print(f"[mdsim] Equilibration log not found at {equil_log}; skipping.")
     if prod_log.exists():
-        plot_state_data(prod_log, visuals_dir / "sim_state.png", title="Production")
+        plot_state_data(prod_log, visuals_dir / "sim_state.png", title="Production", dpi=viz_cfg.figure_dpi if viz_cfg else 300)
     else:
         print(f"[mdsim] Production log not found at {prod_log}; skipping.")
 
     analysis_dir = run_dir / "analysis"
     # RMSD
-    rmsd_csv = analysis_dir / "rmsd.csv"
+    rmsd_csv = analysis_dir / f"{rmsd_name}.csv"
     if rmsd_csv.exists():
-        plot_rmsd(rmsd_csv, visuals_dir / "rmsd.png", title="RMSD")
+        plot_rmsd(
+            rmsd_csv,
+            visuals_dir / "rmsd.png",
+            title="RMSD",
+            dpi=viz_cfg.figure_dpi if viz_cfg else 300,
+        )
     # RMSF
-    rmsf_csv = analysis_dir / "rmsf.csv"
+    rmsf_csv = analysis_dir / f"{rmsf_name}.csv"
     if rmsf_csv.exists():
-        plot_rmsf(rmsf_csv, visuals_dir / "rmsf.png", title="RMSF")
+        default_rmsf_agg = viz_cfg.rmsf.aggregate_by_residue if viz_cfg else False
+        agg_map = None
+        if viz_cfg:
+            agg_map = {sel.name: sel.aggregate_by_residue for sel in viz_cfg.rmsf.selections}
+        plot_rmsf(
+            rmsf_csv,
+            visuals_dir / "rmsf.png",
+            title="RMSF",
+            aggregate_by_residue=default_rmsf_agg,
+            aggregate_map=agg_map,
+            dpi=viz_cfg.figure_dpi if viz_cfg else 300,
+        )
     # Pairwise RMSD
-    pairwise_csv = analysis_dir / "pairwise_rmsd.csv"
+    pairwise_csv = analysis_dir / f"{pairwise_name}.csv"
     if pairwise_csv.exists():
-        plot_pairwise_rmsd(pairwise_csv, visuals_dir / "pairwise_rmsd.png", title="Pairwise RMSD")
+        max_ticks = viz_cfg.pairwise_rmsd.max_tick_labels if viz_cfg else 30
+        plot_pairwise_rmsd(
+            pairwise_csv,
+            visuals_dir / "pairwise_rmsd.png",
+            title="Pairwise RMSD",
+            max_tick_labels=max_ticks,
+            dpi=viz_cfg.figure_dpi if viz_cfg else 300,
+        )
     # Contacts
-    contacts_csv = analysis_dir / "contacts.csv"
+    contacts_csv = analysis_dir / f"{contacts_name}.csv"
     if contacts_csv.exists():
-        plot_contacts(contacts_csv, visuals_dir / "contacts.png", title="Contacts", top_n=20, value="fraction")
+        plot_contacts(
+            contacts_csv,
+            visuals_dir / "contacts.png",
+            title="Contacts",
+            top_n=20,
+            value="fraction",
+            dpi=viz_cfg.figure_dpi if viz_cfg else 300,
+        )
 
     return 0
 

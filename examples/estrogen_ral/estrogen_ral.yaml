@@ -14,7 +14,7 @@ system:
     - "amber19/tip3pfb.xml"
 
 prep:                                    # Structure cleaning
-  fix_missing_residues: true             # PDBFixer findMissingResidues
+  fix_missing_residues: true             # PDBFixer findMissingResidues (skip if you know sequences are complete)
   fix_missing_atoms: true                # PDBFixer find/add missing atoms
   add_hydrogens_pH: 7.0                  # pH for protonation
   remove_heterogens: true                # Strip heterogens (incl. waters) before modelling
@@ -22,7 +22,7 @@ prep:                                    # Structure cleaning
 
 solvation:                                # Modeller.addSolvent options
   enabled: true
-  water_model: "tip3p"
+  water_model: "tip3p"                   # water model string (must match a forcefield file)
   padding_nm: 1.0                         # nm padding around solute
   ionic_strength_m: 0.15                  # molar salt
   positive_ion: "Na+"
@@ -81,7 +81,7 @@ simulation:
 
 output:
   keep_tmp: false                         # keep tmp/ after run
-  keep_cache: true                        # keep cache/ (ligand templates)
+  keep_cache: true                        # keep cache/ (ligand templates) to speed later steps (e.g., MMGBSA)
   final_pdb: "simulated_complex.pdb"
   final_state_xml: "final_state.xml"
   initial_state_xml: "initial_state.xml"
@@ -89,21 +89,89 @@ output:
   config_copy: "config_resolved.yaml"
   manifest: "manifest.json"
 
+##### MMG(P)BSA configuration #####
 mmgbsa:
   enabled: false
-  keep_files: 2
+  # Use Amber mask syntax to choose any pair (protein/protein, protein/ligand, ligand/ligand, RNA, etc.)
+  receptor_mask: null              # e.g., ":1-200" or ":PROA"
+  ligand_mask: null                # e.g., ":LIG" or ":201-250"
+  decomposition: null              # e.g., "residue"
+  keep_files: 2                    # Amber keep_files level (0-2), stored in tmp/
   debug_printlevel: 1
   strip_mask: ":WAT:HOH:CL:CIO:CS:IB:K:LI:MG:NA:RB"
-  startframe: 250
+  startframe: 250                  # frame range/stride for analysis
   endframe: 1500
   interval: 25
-  receptor_mask: null
-  ligand_mask: null
-  decomposition: null
-  gb_enabled: true
+  gb_enabled: true                 # set false to skip GB and run PB-only
   igb: 5
   saltcon: 0.150
-  pb_enabled: false
+  pb_enabled: false                # enable if you also want PB block
   istrng: 0.100
   radiopt: 0
   inp: 1
+  # See Amber MMGBSA tutorial for detailed parameter meanings.
+
+##### Analysis configuration #####
+analysis:
+  transformations:                      # applied once to trajectory before analyses
+    enabled: false
+    unwrap_selection: "all"             # selection to unwrap across PBC (null to skip)
+    center_selection: "protein"         # selection to center and wrap in box (null to skip)
+    save_format: "dcd"                  # dcd | xtc | trr | nc | mdcrd | trj | xyz
+    save_interval: 1                    # stride for saving transformed frames
+    save_filename: null                 # override output filename (defaults to sim_trajectory_transformed.<ext>)
+  rmsd:
+    enabled: false
+    name: "rmsd"                        # output CSV filename (single file with multiple labels)
+    reference: "minimized"              # minimized | final | external (applied to all selections)
+    reference_path: null                # required if reference: external
+    align_selection: "backbone"         # alignment selection applied to all selections
+    stride: 1                           # default stride for all selections
+    max_frames: null                    # default max_frames for all selections
+    selections:
+      - name: "backbone"                # label used in CSV/plot
+        target_selection: "backbone"    # MDAnalysis selection to measure RMSD on
+        stride: 1
+        max_frames: null
+      - name: "ligand"
+        target_selection: "resname LIG"
+        stride: 1
+        max_frames: null
+  rmsf:
+    enabled: false
+    name: "rmsf"
+    align_selection: "backbone"           # shared alignment selection for all RMSF calculations
+    stride: 1                             # default stride for selections
+    max_frames: null                      # default max_frames for selections
+    selections:
+      - name: "backbone"
+        target_selection: "backbone"
+        stride: 1
+        max_frames: null
+  pairwise_rmsd:
+    enabled: false
+    name: "pairwise_rmsd"
+    selection: "backbone"               # selection used for frame-vs-frame matrix
+    align_selection: "backbone"         # optional alignment selection (applied before RMSD)
+    stride: 1
+    max_frames: null
+  contacts:
+    enabled: false
+    name: "contacts"
+    selection1: "protein"
+    selection2: "ligand"
+    cutoff_angstrom: 4.0
+    per_residue: true
+    stride: 1
+    max_frames: null
+
+##### Visualization configuration #####
+visualization:
+  figure_dpi: 300                        # default DPI for saved figures
+  rmsf:
+    aggregate_by_residue: false           # default aggregation for all selections (overridden per selection below)
+    selections:
+      - name: "backbone"
+        aggregate_by_residue: false       # per-selection aggregation override
+  pairwise_rmsd:
+    max_tick_labels: 30                   # max tick labels on each axis for pairwise RMSD heatmap

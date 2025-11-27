@@ -176,7 +176,7 @@ class RMSDSelectionConfig:
 class RMSFConfig:
     enabled: bool = False
     name: str = "rmsf"
-    align_selection: Optional[str] = None  # shared align selection for all RMSF calculations
+    align_selection: str = "backbone"  # shared align selection for all RMSF calculations (mandatory)
     stride: int = 1  # default stride if a selection does not override
     max_frames: Optional[int] = None  # default max_frames if a selection does not override
     selections: list["RMSFSelectionConfig"] = field(default_factory=list)
@@ -215,6 +215,7 @@ class ContactsConfig:
 @dataclass
 class TransformationsConfig:
     enabled: bool = False
+    enable_no_jump: bool = False
     unwrap_selection: Optional[str] = "all"
     center_selection: Optional[str] = "protein"
     save_format: str = "dcd"  # dcd | xtc | trr | nc | mdcrd | trj | xyz
@@ -602,15 +603,15 @@ def _load_analysis_config(data: Mapping[str, Any] | None) -> AnalysisConfig:
     rmsf = RMSFConfig(
         enabled=bool(rmsf_data.get("enabled", False)),
         name=str(rmsf_data.get("name", "rmsf")),
-        align_selection=default_rmsf_align,
+        align_selection=str(default_rmsf_align),
         stride=default_rmsf_stride,
         max_frames=default_rmsf_max_frames,
         selections=rmsf_selections,
     )
 
-    align_ref_raw = trans_data.get("align_reference", "minimized")
     transformations = TransformationsConfig(
         enabled=bool(trans_data.get("enabled", False)),
+        enable_no_jump=bool(trans_data.get("enable_no_jump", False)),
         unwrap_selection=trans_data.get("unwrap_selection"),
         center_selection=trans_data.get("center_selection"),
         save_format=str(trans_data.get("save_format", "dcd")),

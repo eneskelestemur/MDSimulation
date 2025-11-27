@@ -12,7 +12,9 @@ from typing import Optional
 import MDAnalysis as mda
 import numpy as np
 import pandas as pd
-from MDAnalysis.analysis import align
+from MDAnalysis.analysis import rms
+from MDAnalysis.analysis.diffusionmap import DistanceMatrix
+from MDAnalysis.lib import distances
 
 from ..logging_setup import get_logger
 
@@ -68,16 +70,6 @@ def _select_atoms_checked(universe: mda.Universe, selection: str) -> mda.core.gr
     return ag
 
 
-def _align(mobile: mda.Universe, reference: mda.Universe, align_sel: Optional[str], *, self_align: bool = False) -> None:
-    """Align mobile to reference (or itself) if an alignment selection is provided."""
-    if not align_sel:
-        return
-    if self_align:
-        align.alignto(mobile, mobile, select=align_sel, weights="mass")
-    else:
-        align.alignto(mobile, reference, select=align_sel, weights="mass")
-
-
 # --------------------------------------------------------------------------- #
 # Analyses
 # --------------------------------------------------------------------------- #
@@ -86,7 +78,6 @@ def _align(mobile: mda.Universe, reference: mda.Universe, align_sel: Optional[st
 def compute_rmsd(
     mobile: mda.Universe,
     reference: mda.Universe,
-    align_sel: Optional[str],
     target_sel: str,
     stride: int,
     max_frames: Optional[int],
@@ -99,35 +90,32 @@ def compute_rmsd(
     Args:
         mobile: Universe containing trajectory to analyze.
         reference: Reference structure Universe.
-        align_sel: Selection string for alignment (optional).
         target_sel: Selection string to compute RMSD on.
         stride: Subsample frames every N steps.
         max_frames: Cap number of frames (after stride); None for all.
         out_csv: Output CSV path (if None, results are not written).
         label: Label stored alongside results.
     """
-    mob_atoms = _select_atoms_checked(mobile, target_sel)
-    ref_atoms = _select_atoms_checked(reference, target_sel)
-    if len(mob_atoms) != len(ref_atoms):
-        raise ValueError("RMSD target selections do not match in atom count.")
-
-    frame_indices = _frame_indices(mobile.trajectory.n_frames, stride, max_frames)
-    data = []
-    for i in frame_indices:
-        mobile.trajectory[i]
-        _align(mobile, reference, align_sel, self_align=False)
-        diff = mob_atoms.positions - ref_atoms.positions
-        rmsd_val = np.sqrt((diff * diff).sum() / len(mob_atoms))
-        data.append(
-            {
-                "frame": i,
-                "time_ns": mobile.trajectory.time / 1000.0,
-                "rmsd_angstrom": rmsd_val,
-                "label": label,
-            }
-        )
-
-    df = pd.DataFrame(data)
+    stop = stride * max_frames if max_frames is not None else None
+    calc = rms.RMSD(
+        mobile,
+        reference,
+        select=target_sel,
+        ref_frame=0,
+        start=0,
+        stop=stop,
+        step=stride,
+    )
+    calc.run()
+    arr = calc.rmsd  # columns: frame, time(ps), RMSD(Å)
+    df = pd.DataFrame(
+        {
+            "frame": arr[:, 0].astype(int),
+            "time_ns": arr[:, 1] / 1000.0,
+            "rmsd_angstrom": arr[:, 2],
+            "label": label,
+        }
+    )
     if out_csv is not None:
         df.to_csv(out_csv, index=False)
         logger.info("Wrote RMSD to %s", out_csv)
@@ -136,7 +124,6 @@ def compute_rmsd(
 
 def compute_rmsf(
     mobile: mda.Universe,
-    align_sel: Optional[str],
     target_sel: str,
     stride: int,
     max_frames: Optional[int],
@@ -144,34 +131,35 @@ def compute_rmsf(
     label: str,
 ) -> pd.DataFrame:
     """
-    Compute RMSF for a selection (optionally aligned each frame) and optionally write CSV.
+    Compute RMSF for a selection using MDAnalysis RMSF (optionally aligned) and optionally write CSV.
 
     Args:
         mobile: Universe containing trajectory to analyze.
-        align_sel: Selection string for alignment (optional).
         target_sel: Selection string to compute RMSF on.
         stride: Subsample frames every N steps.
         max_frames: Cap number of frames (after stride); None for all.
         out_csv: Output CSV path (if None, results are not written).
         label: Label stored alongside results.
     """
-    atoms = _select_atoms_checked(mobile, target_sel)
-    frame_indices = _frame_indices(mobile.trajectory.n_frames, stride, max_frames)
-    coords = []
-    for i in frame_indices:
-        mobile.trajectory[i]
-        _align(mobile, mobile, align_sel, self_align=True)
-        coords.append(atoms.positions.copy())
-    if not coords:
-        raise ValueError("No frames collected for RMSF.")
-    coords = np.array(coords)
-    mean = coords.mean(axis=0)
-    diffs = coords - mean
-    rmsf = np.sqrt((diffs * diffs).sum(axis=2).mean(axis=0))
+    # Work on a copy so later steps do not mutate the original Universe
+    working = mobile.copy()
+    atoms = _select_atoms_checked(working, target_sel)
+
+    # Limit frames
+    if max_frames is not None:
+        stop = min(working.trajectory.n_frames, stride * max_frames)
+    else:
+        stop = None
+
+    # Compute RMSF using MDAnalysis
+    rmsf_res = rms.RMSF(atoms)
+    rmsf_res.run(start=0, stop=stop, step=stride)
+    rmsf_vals = rmsf_res.rmsf
+
     df = pd.DataFrame(
         {
             "atom_index": np.arange(len(atoms)),
-            "rmsf_angstrom": rmsf,
+            "rmsf_angstrom": rmsf_vals,
             "label": label,
             "residue_index": atoms.resindices,
             "residue_id": atoms.resnums,
@@ -186,13 +174,10 @@ def compute_rmsf(
 
 def compute_pairwise_rmsd(
     mobile: mda.Universe,
-    reference: mda.Universe,
     selection: str,
-    align_sel: Optional[str],
     stride: int,
     max_frames: Optional[int],
     out_csv: Path,
-    label: str,
 ) -> None:
     """
     Compute pairwise RMSD and write CSV.
@@ -202,38 +187,23 @@ def compute_pairwise_rmsd(
 
     Args:
         mobile: Universe containing trajectory to analyze.
-        reference: Reference structure Universe (used for self alignment).
         selection: Selection string used for all frames.
-        align_sel: Selection string for alignment (optional).
         stride: Subsample frames every N steps.
         max_frames: Cap number of frames (after stride); None for all.
         out_csv: Output CSV path.
-        label: Label stored alongside results.
     """
-    # Self RMSD matrix across frames
-    sel = _select_atoms_checked(mobile, selection)
-    ref_sel = _select_atoms_checked(reference, selection)
-    if len(sel) != len(ref_sel):
-        raise ValueError("Pairwise RMSD self requires same atom count in reference.")
-    frame_indices = _frame_indices(mobile.trajectory.n_frames, stride, max_frames)
-    coords = []
+    # Use MDAnalysis DistanceMatrix with RMSD metric; assumes any alignment handled upstream.
+    total_frames = mobile.trajectory.n_frames
+    stop = stride * max_frames if max_frames is not None else None
+    dm = DistanceMatrix(mobile, select=selection, metric=rms.rmsd, start=0, stop=stop, step=stride)
+    dm.run()
+    matrix = dm.results.dist_matrix
+    # Build labels based on the frames used
+    frame_indices = _frame_indices(total_frames, stride, max_frames)
     times_ns = []
     for i in frame_indices:
         mobile.trajectory[i]
-        _align(mobile, reference, align_sel, self_align=False)
-        coords.append(sel.positions.copy())
         times_ns.append(mobile.trajectory.time / 1000.0)
-    if not coords:
-        raise ValueError("No frames collected for pairwise RMSD.")
-    coords = np.array(coords)
-    n = len(coords)
-    matrix = np.zeros((n, n))
-    for i in range(n):
-        for j in range(i, n):
-            diff = coords[i] - coords[j]
-            rmsd_val = np.sqrt((diff * diff).sum() / len(sel))
-            matrix[i, j] = rmsd_val
-            matrix[j, i] = rmsd_val
     labels = [f"time_{t:.3f}_ns" for t in times_ns]
     df = pd.DataFrame(matrix, columns=labels, index=labels)
     df.to_csv(out_csv, index=True)
@@ -268,21 +238,23 @@ def compute_contacts(
     sel1 = _select_atoms_checked(mobile, selection1)
     sel2 = _select_atoms_checked(mobile, selection2)
     frame_indices = _frame_indices(mobile.trajectory.n_frames, stride, max_frames)
-    counts = {}
+    counts: dict[tuple[int, int], int] = {}
     for i in frame_indices:
         mobile.trajectory[i]
-        dists = mda.lib.distances.distance_array(sel1.positions, sel2.positions)
-        contacts = np.where(dists <= cutoff_angstrom)
-        if per_residue:
-            for idx1, idx2 in zip(*contacts):
-                res1 = sel1.atoms[idx1].resid
-                res2 = sel2.atoms[idx2].resid
-                counts[(res1, res2)] = counts.get((res1, res2), 0) + 1
-        else:
-            for idx1, idx2 in zip(*contacts):
-                a1 = sel1.atoms[idx1].index
-                a2 = sel2.atoms[idx2].index
-                counts[(a1, a2)] = counts.get((a1, a2), 0) + 1
+        # Use capped_distance for efficiency; includes box for PBC-aware distances
+        pairs, _ = distances.capped_distance(
+            sel1.positions, sel2.positions, max_cutoff=cutoff_angstrom, box=mobile.trajectory.ts.dimensions
+        )
+        for idx1, idx2 in pairs:
+            if per_residue:
+                res1 = sel1.atoms[int(idx1)].resid
+                res2 = sel2.atoms[int(idx2)].resid
+                key = (res1, res2)
+            else:
+                a1 = sel1.atoms[int(idx1)].index
+                a2 = sel2.atoms[int(idx2)].index
+                key = (a1, a2)
+            counts[key] = counts.get(key, 0) + 1
     total = len(frame_indices)
     rows = []
     for key, val in counts.items():

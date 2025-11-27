@@ -187,7 +187,24 @@ def plot_rmsf(
         x_col = "atom_index"
         x_label = "Atom index"
 
-    sns.lineplot(data=plot_df, x=x_col, y="rmsf_angstrom", hue="label", ax=ax, linewidth=1.3)
+    # Use markers for selections with <20 points; otherwise lines only.
+    labels = sorted(plot_df["label"].unique())
+    palette = sns.color_palette(n_colors=len(labels))
+    for color, label in zip(palette, labels):
+        group = plot_df[plot_df["label"] == label]
+        use_marker = len(group) < 50
+        sns.lineplot(
+            data=group,
+            x=x_col,
+            y="rmsf_angstrom",
+            label=label,
+            ax=ax,
+            linewidth=1.3 if not use_marker else 1.2,
+            marker="o" if use_marker else None,
+            markersize=5 if use_marker else 0,
+            color=color,
+        )
+    ax.legend(title="Selection", bbox_to_anchor=(1.02, 1), loc="upper left", borderaxespad=0)
     ax.set_xlabel(x_label)
     ax.set_ylabel("RMSF (Å)")
     ax.set_title(title)
@@ -255,20 +272,32 @@ def plot_contacts(csv_path: Path, out_path: Path, title: str, top_n: int = 20, v
     if value not in df.columns:
         logger.warning("Contacts CSV missing column %s; skipping plot for %s", value, csv_path)
         return
-    df_sorted = df.sort_values(value, ascending=False).head(top_n)
-    sns.set_theme(style="whitegrid")
-    fig, ax = plt.subplots(figsize=(8, 4))
-    sns.barplot(
-        data=df_sorted,
-        x=value,
-        y=df_sorted.apply(lambda r: f"{r['id1']}-{r['id2']}", axis=1),
-        hue="label",
-        ax=ax,
-        dodge=False,
-    )
-    ax.set_xlabel(value.capitalize())
-    ax.set_ylabel("Pair")
-    ax.set_title(title)
+    sns.set_theme(style="whitegrid", context="notebook")
+    unique1 = df["id1"].nunique()
+    unique2 = df["id2"].nunique()
+
+    if unique1 > 1 and unique2 > 1:
+        pivot = df.pivot_table(index="id1", columns="id2", values=value, fill_value=0)
+        fig, ax = plt.subplots(figsize=(6, 5))
+        sns.heatmap(pivot, cmap="mako", ax=ax, cbar_kws={"label": value.capitalize()})
+        ax.set_xlabel("id2")
+        ax.set_ylabel("id1")
+        ax.set_title(title)
+    else:
+        df_sorted = df.sort_values(value, ascending=False).head(top_n)
+        fig, ax = plt.subplots(figsize=(8, 4))
+        sns.barplot(
+            data=df_sorted,
+            x=value,
+            y=df_sorted.apply(lambda r: f"{r['id1']}-{r['id2']}", axis=1),
+            hue="label",
+            ax=ax,
+            dodge=False,
+        )
+        ax.set_xlabel(value.capitalize())
+        ax.set_ylabel("Pair")
+        ax.set_title(title)
+        ax.legend().set_title("Selection")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)

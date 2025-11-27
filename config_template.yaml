@@ -118,6 +118,7 @@ mmgbsa:
 analysis:
   transformations:                      # applied once to trajectory before analyses
     enabled: false
+    enable_no_jump: false               # use MDAnalysis NoJump (disables other transforms below)
     unwrap_selection: "all"             # selection to unwrap across PBC (null to skip)
     center_selection: "protein"         # selection to center and wrap in box (null to skip)
     save_format: "dcd"                  # dcd | xtc | trr | nc | mdcrd | trj | xyz

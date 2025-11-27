@@ -5,6 +5,8 @@ from typing import Optional
 
 import pandas as pd
 import MDAnalysis.transformations as mda_trans
+from MDAnalysis.transformations.nojump import NoJump
+from MDAnalysis.analysis import align
 import MDAnalysis as mda
 
 from ..config import RunConfig, load_run_config
@@ -99,26 +101,30 @@ class AnalysisWorkflow:
         trans_cfg = cfg.transformations
         if trans_cfg and trans_cfg.enabled:
             transformations = []
-            if trans_cfg.unwrap_selection:
-                try:
-                    ag = mobile.select_atoms(trans_cfg.unwrap_selection)
-                    transformations.append(mda_trans.unwrap(ag))
-                except Exception as exc:
-                    logger.warning("Failed to set unwrap transformation (%s); continuing without unwrap", exc)
-            if trans_cfg.center_selection:
-                try:
-                    ag = mobile.select_atoms(trans_cfg.center_selection)
-                    transformations.append(mda_trans.center_in_box(ag, wrap=True))
-                except Exception as exc:
-                    logger.warning("Failed to set center_in_box transformation (%s); continuing without centering", exc)
-            wrap_sel = None
-            if trans_cfg.unwrap_selection and str(trans_cfg.unwrap_selection).lower() != "all":
-                wrap_sel = f"not ({trans_cfg.unwrap_selection})"
-            if wrap_sel:
-                try:
-                    transformations.append(mda_trans.wrap(mobile.select_atoms(wrap_sel)))
-                except Exception as exc:
-                    logger.warning("Failed to set wrap transformation (%s); continuing without final wrap", exc)
+            if trans_cfg.enable_no_jump:
+                transformations.append(NoJump())
+                logger.info("Applied NoJump transformation (other transforms disabled)")
+            else:
+                if trans_cfg.unwrap_selection:
+                    try:
+                        ag = mobile.select_atoms(trans_cfg.unwrap_selection)
+                        transformations.append(mda_trans.unwrap(ag))
+                    except Exception as exc:
+                        logger.warning("Failed to set unwrap transformation (%s); continuing without unwrap", exc)
+                if trans_cfg.center_selection:
+                    try:
+                        ag = mobile.select_atoms(trans_cfg.center_selection)
+                        transformations.append(mda_trans.center_in_box(ag, point=(0, 0, 0), wrap=True))
+                    except Exception as exc:
+                        logger.warning("Failed to set center_in_box transformation (%s); continuing without centering", exc)
+                wrap_sel = None
+                if trans_cfg.unwrap_selection and str(trans_cfg.unwrap_selection).lower() != "all":
+                    wrap_sel = f"not ({trans_cfg.unwrap_selection})"
+                if wrap_sel:
+                    try:
+                        transformations.append(mda_trans.wrap(mobile.select_atoms(wrap_sel)))
+                    except Exception as exc:
+                        logger.warning("Failed to set wrap transformation (%s); continuing without final wrap", exc)
             if transformations:
                 mobile.trajectory.add_transformations(*transformations)
                 logger.info("Applied %d trajectory transformations for analysis", len(transformations))
@@ -135,10 +141,30 @@ class AnalysisWorkflow:
                     for ts in mobile.trajectory[::stride]:
                         writer.write(mobile.atoms)
                 logger.info("Wrote transformed trajectory to %s (stride=%d)", out_path, stride)
-                # Reload transformed trajectory without transformations for analyses
                 mobile = load_universe(topology, out_path)
             except Exception as exc:
                 logger.warning("Failed to write or reload transformed trajectory (%s); continuing with original trajectory and transforms", exc)
+
+        # Optional global alignment applied once for all analyses (uses RMSD align selection)
+        if cfg.rmsd.align_selection:
+            try:
+                ref_path = self._get_reference(cfg.rmsd.reference, cfg.rmsd.reference_path)
+                reference = reference_cache.get(ref_path)
+                if reference is None:
+                    reference = load_reference(ref_path)
+                    reference_cache[ref_path] = reference
+                align.AlignTraj(
+                    mobile,
+                    reference,
+                    select=cfg.rmsd.align_selection,
+                    in_memory=True,
+                    start=0,
+                    stop=None,
+                    step=1,
+                ).run()
+                logger.info("Aligned trajectory once using selection '%s' for all analyses", cfg.rmsd.align_selection)
+            except Exception as exc:
+                raise ValueError(f"Failed to align trajectory for analyses using '{cfg.rmsd.align_selection}': {exc}")
 
         # RMSD
         if cfg.rmsd.enabled:
@@ -154,7 +180,6 @@ class AnalysisWorkflow:
                 df = compute_rmsd(
                     mobile=mobile,
                     reference=reference,
-                    align_sel=cfg.rmsd.align_selection,
                     target_sel=sel.target_selection,
                     stride=sel.stride,
                     max_frames=sel.max_frames,
@@ -181,7 +206,6 @@ class AnalysisWorkflow:
             for sel in cfg.rmsf.selections:
                 df = compute_rmsf(
                     mobile=mobile,
-                    align_sel=cfg.rmsf.align_selection or sel.target_selection,
                     target_sel=sel.target_selection,
                     stride=sel.stride,
                     max_frames=sel.max_frames,
@@ -196,22 +220,13 @@ class AnalysisWorkflow:
 
         # Pairwise RMSD
         if cfg.pairwise_rmsd.enabled:
-            ref_path = self._get_reference(cfg.rmsd.reference, cfg.rmsd.reference_path)
-            reference_for_pairwise = reference_cache.get(ref_path)
-            if reference_for_pairwise is None:
-                reference_for_pairwise = load_reference(ref_path)
-                reference_cache[ref_path] = reference_for_pairwise
-
             out_csv = self.analysis_dir / f"{cfg.pairwise_rmsd.name}.csv"
             compute_pairwise_rmsd(
                 mobile=mobile,
-                reference=reference_for_pairwise,
                 selection=cfg.pairwise_rmsd.selection,
-                align_sel=cfg.pairwise_rmsd.align_selection,
                 stride=cfg.pairwise_rmsd.stride,
                 max_frames=cfg.pairwise_rmsd.max_frames,
                 out_csv=out_csv,
-                label=cfg.pairwise_rmsd.name,
             )
 
         # Contacts

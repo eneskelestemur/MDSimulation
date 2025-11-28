@@ -204,7 +204,9 @@ class PairwiseRMSDConfig:
 class ContactsConfig:
     enabled: bool = False
     name: str = "contacts"
+    selection1_name: str = "selection1"
     selection1: str = "protein"
+    selection2_name: str = "selection2"
     selection2: str = "ligand"
     cutoff_angstrom: float = 4.0
     per_residue: bool = True
@@ -631,8 +633,18 @@ def _load_analysis_config(data: Mapping[str, Any] | None) -> AnalysisConfig:
     contacts = ContactsConfig(
         enabled=bool(contacts_data.get("enabled", False)),
         name=str(contacts_data.get("name", "contacts")),
-        selection1=str(contacts_data.get("selection1", "protein")),
-        selection2=str(contacts_data.get("selection2", "ligand")),
+        selection1_name=str(contacts_data.get("selection1", {}).get("name", "selection1"))
+        if isinstance(contacts_data.get("selection1"), dict)
+        else str(contacts_data.get("selection1_name", "selection1")),
+        selection1=str(contacts_data.get("selection1", {}).get("selection", contacts_data.get("selection1", "protein")))
+        if isinstance(contacts_data.get("selection1"), dict)
+        else str(contacts_data.get("selection1", "protein")),
+        selection2_name=str(contacts_data.get("selection2", {}).get("name", "selection2"))
+        if isinstance(contacts_data.get("selection2"), dict)
+        else str(contacts_data.get("selection2_name", "selection2")),
+        selection2=str(contacts_data.get("selection2", {}).get("selection", contacts_data.get("selection2", "ligand")))
+        if isinstance(contacts_data.get("selection2"), dict)
+        else str(contacts_data.get("selection2", "ligand")),
         cutoff_angstrom=float(contacts_data.get("cutoff_angstrom", 4.0)),
         per_residue=bool(contacts_data.get("per_residue", True)),
         stride=int(contacts_data.get("stride", 1)),

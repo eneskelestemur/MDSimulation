@@ -220,6 +220,8 @@ def compute_contacts(
     per_residue: bool,
     out_csv: Path,
     label: str,
+    selection1_name: Optional[str] = None,
+    selection2_name: Optional[str] = None,
 ) -> None:
     """
     Compute contact counts/fractions between two selections.
@@ -245,6 +247,7 @@ def compute_contacts(
         pairs, _ = distances.capped_distance(
             sel1.positions, sel2.positions, max_cutoff=cutoff_angstrom, box=mobile.trajectory.ts.dimensions
         )
+        seen_keys = set()
         for idx1, idx2 in pairs:
             if per_residue:
                 res1 = sel1.atoms[int(idx1)].resid
@@ -254,6 +257,8 @@ def compute_contacts(
                 a1 = sel1.atoms[int(idx1)].index
                 a2 = sel2.atoms[int(idx2)].index
                 key = (a1, a2)
+            seen_keys.add(key)
+        for key in seen_keys:
             counts[key] = counts.get(key, 0) + 1
     total = len(frame_indices)
     rows = []
@@ -265,6 +270,8 @@ def compute_contacts(
                 "count": val,
                 "fraction": val / total if total else 0,
                 "label": label,
+                "selection1": selection1_name or selection1,
+                "selection2": selection2_name or selection2,
             }
         )
     pd.DataFrame(rows).to_csv(out_csv, index=False)

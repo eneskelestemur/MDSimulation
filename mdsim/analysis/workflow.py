@@ -242,4 +242,7 @@ class AnalysisWorkflow:
                 per_residue=cfg.contacts.per_residue,
                 out_csv=out_csv,
                 label=cfg.contacts.name,
+                selection1_name=cfg.contacts.selection1_name,
+                selection2_name=cfg.contacts.selection2_name,
             )
+            logger.info("Computed contacts")

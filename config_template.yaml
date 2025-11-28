@@ -162,8 +162,12 @@ analysis:
   contacts:
     enabled: false
     name: "contacts"
-    selection1: "protein"
-    selection2: "ligand"
+    selection1:                         # defaults
+      name: "protein"
+      selection: "protein"
+    selection2:
+      name: "ligand"
+      selection: "ligand"
     cutoff_angstrom: 4.0
     per_residue: true
     stride: 1

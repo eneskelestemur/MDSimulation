@@ -275,13 +275,15 @@ def plot_contacts(csv_path: Path, out_path: Path, title: str, top_n: int = 20, v
     sns.set_theme(style="whitegrid", context="notebook")
     unique1 = df["id1"].nunique()
     unique2 = df["id2"].nunique()
+    sel1 = df["selection1"].iloc[0] if "selection1" in df.columns else None
+    sel2 = df["selection2"].iloc[0] if "selection2" in df.columns else None
 
     if unique1 > 1 and unique2 > 1:
         pivot = df.pivot_table(index="id1", columns="id2", values=value, fill_value=0)
         fig, ax = plt.subplots(figsize=(6, 5))
         sns.heatmap(pivot, cmap="mako", ax=ax, cbar_kws={"label": value.capitalize()})
-        ax.set_xlabel("id2")
-        ax.set_ylabel("id1")
+        ax.set_xlabel(sel2 or "id2")
+        ax.set_ylabel(sel1 or "id1")
         ax.set_title(title)
     else:
         df_sorted = df.sort_values(value, ascending=False).head(top_n)
@@ -290,14 +292,14 @@ def plot_contacts(csv_path: Path, out_path: Path, title: str, top_n: int = 20, v
             data=df_sorted,
             x=value,
             y=df_sorted.apply(lambda r: f"{r['id1']}-{r['id2']}", axis=1),
-            hue="label",
             ax=ax,
             dodge=False,
         )
         ax.set_xlabel(value.capitalize())
-        ax.set_ylabel("Pair")
+        ax.set_ylabel(f"{sel1 or 'selection1'} - {sel2 or 'selection2'}")
         ax.set_title(title)
-        ax.legend().set_title("Selection")
+        if ax.get_legend():
+            ax.get_legend().remove()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)

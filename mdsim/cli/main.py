@@ -180,7 +180,7 @@ def _visualize_command(run_dir: Path) -> int:
             contacts_csv,
             visuals_dir / "contacts.png",
             title="Contacts",
-            top_n=20,
+            top_n=viz_cfg.contacts.top_n if viz_cfg else 20,
             value="fraction",
             dpi=viz_cfg.figure_dpi if viz_cfg else 300,
         )

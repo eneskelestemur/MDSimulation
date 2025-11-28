@@ -183,3 +183,5 @@ visualization:
         aggregate_by_residue: false       # per-selection aggregation override
   pairwise_rmsd:
     max_tick_labels: 30                   # max tick labels on each axis for pairwise RMSD heatmap
+  contacts:
+    top_n: 20                             # number of bars to show when using bar plot

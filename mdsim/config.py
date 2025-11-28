@@ -252,10 +252,16 @@ class VisualizationPairwiseRMSDConfig:
 
 
 @dataclass
+class VisualizationContactsConfig:
+    top_n: int = 20
+
+
+@dataclass
 class VisualizationConfig:
     figure_dpi: int = 300
     rmsf: VisualizationRMSFConfig = field(default_factory=VisualizationRMSFConfig)
     pairwise_rmsd: VisualizationPairwiseRMSDConfig = field(default_factory=VisualizationPairwiseRMSDConfig)
+    contacts: VisualizationContactsConfig = field(default_factory=VisualizationContactsConfig)
 
 
 # --- MMGBSA placeholder -----------------------------------------------------
@@ -664,6 +670,7 @@ def _load_visualization_config(data: Mapping[str, Any] | None) -> VisualizationC
     data = data or {}
     rmsf_data = data.get("rmsf", {}) or {}
     pairwise_data = data.get("pairwise_rmsd", {}) or {}
+    contacts_data = data.get("contacts", {}) or {}
 
     rmsf_selections_raw = rmsf_data.get("selections") or []
     rmsf_selections = [
@@ -681,11 +688,15 @@ def _load_visualization_config(data: Mapping[str, Any] | None) -> VisualizationC
     pairwise = VisualizationPairwiseRMSDConfig(
         max_tick_labels=max(1, int(pairwise_data.get("max_tick_labels", 30))),
     )
+    contacts = VisualizationContactsConfig(
+        top_n=int(contacts_data.get("top_n", 20)),
+    )
 
     return VisualizationConfig(
         figure_dpi=int(data.get("figure_dpi", 300)),
         rmsf=rmsf,
         pairwise_rmsd=pairwise,
+        contacts=contacts,
     )
 
 

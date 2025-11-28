@@ -96,6 +96,18 @@ def compute_rmsd(
         out_csv: Output CSV path (if None, results are not written).
         label: Label stored alongside results.
     """
+    mob_sel = mobile.select_atoms(target_sel)
+    ref_sel = reference.select_atoms(target_sel)
+    if len(mob_sel) != len(ref_sel):
+        logger.warning(
+            "RMSD selection '%s' mismatch (trajectory: %d atoms, reference: %d atoms); "
+            "falling back to using the trajectory as its own reference. Results may differ from a true reference-based RMSD.",
+            target_sel,
+            len(mob_sel),
+            len(ref_sel),
+        )
+        reference = mobile
+
     stop = stride * max_frames if max_frames is not None else None
     calc = rms.RMSD(
         mobile,

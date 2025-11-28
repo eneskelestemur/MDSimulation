@@ -287,7 +287,7 @@ def plot_contacts(csv_path: Path, out_path: Path, title: str, top_n: int = 20, v
         ax.set_title(title)
     else:
         df_sorted = df.sort_values(value, ascending=False).head(top_n)
-        fig, ax = plt.subplots(figsize=(8, 4))
+        fig, ax = plt.subplots(figsize=(6, 6))
         sns.barplot(
             data=df_sorted,
             x=value,
